@@ -68,8 +68,8 @@ function layout(){
   P.baseline = P.launch - ARROW_DROP;
 }
 const TOP = 48;
-const RAZOR_SCALE = 1.2;         // the blade is 20% wider than a plain ball
-const SHOT_R = 16;               // fixed; no longer a dial
+const RAZOR_SCALE = 1.1;         // the blade is 20% wider than a plain ball
+const SHOT_R = 14;               // fixed; no longer a dial
 const SCORE_PX = 42;             // foot score size
 const SCORE_BASE = 26;           // its baseline, measured up from the bottom
 const ARROW_GAP = 5;             // clear air between the ball and the arrow tail                  // notch clearance: 50pt on a 13 mini, 59pt on a Dynamic Island phone
@@ -79,9 +79,9 @@ const ARROW_GAP = 5;             // clear air between the ball and the arrow tai
    from the bottom of whatever window this runs in. */
 const P = {
   speed:     420,    // launch speed, px/s
-  friction:  0.54,   // fraction of speed kept per second
+  friction:  0.6,   // fraction of speed kept per second
   bounce:    0.92,   // speed kept per wall or ball impact
-  stopAt:    18,     // below this the ball is considered at rest, px/s
+  stopAt:    16,     // below this the ball is considered at rest, px/s
   growTime:  0.50,   // seconds to reach final size once at rest
   sweep:     100,    // arrow rotation, degrees per second
   aimDelay:  0.03,   // dead time after a press before the arrow moves
