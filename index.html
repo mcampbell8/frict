@@ -68,7 +68,7 @@ function layout(){
   P.baseline = P.launch - ARROW_DROP;
 }
 const TOP = 48;
-const RAZOR_SCALE = 1.2;         // the blade is 20% wider than a plain ball
+const RAZOR_SCALE = 1.1;         // the blade is 10% wider than a plain ball
 const SHOT_R = 16;               // fixed; no longer a dial
 const SCORE_PX = 42;             // foot score size
 const SCORE_BASE = 26;           // its baseline, measured up from the bottom
@@ -79,7 +79,7 @@ const ARROW_GAP = 5;             // clear air between the ball and the arrow tai
    from the bottom of whatever window this runs in. */
 const P = {
   speed:     420,    // launch speed, px/s
-  friction:  0.52,   // fraction of speed kept per second
+  friction:  0.50,   // fraction of speed kept per second
   bounce:    0.90,   // speed kept per wall or ball impact
   stopAt:    20,     // below this the ball is considered at rest, px/s
   growTime:  0.50,   // seconds to reach final size once at rest
