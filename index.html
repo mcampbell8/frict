@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Frict</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Archivo:wght@100..900&display=swap">
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:#000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overscroll-behavior:none;
+    -webkit-font-smoothing:antialiased;
+  }
+  .screen{
+    position:relative;
+    width:min(100vw, calc(100vh * 320 / 693));
+    aspect-ratio:320/693;
+    background:#000;
+  }
+  @supports (height:1svh){
+    .screen{ width:min(100vw, calc(100svh * 320 / 693)); }
+  }
+  .screen canvas{
+    display:block;
+    width:100%;
+    height:100%;
+    touch-action:none;
+    cursor:pointer;
+    user-select:none;
+    -webkit-user-select:none;
+    -webkit-touch-callout:none;
+    will-change:transform;
+    transform:translateZ(0);
+  }
+  .screen canvas:focus{outline:none}
+</style>
+</head>
+<body>
+<div class="screen">
+  <canvas id="game" width="320" height="693" tabindex="0"
+          aria-label="Frict. Press and hold to aim, release to shoot."></canvas>
+</div>
+<script>
+const A={"arrow": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAA4CAYAAADqxUiJAAAB9ElEQVR4nO2X0XGDMAyGf3p9jzcoG8QbwAYdId2g3aAj9DpBuknpBHEnCJkg7gTuA2BsEEYmJk/8Pt/pbKEP6SyTAJu4MjjB4Hhv6BHGjjvBfWg3Pu4HvbazH4e1oAcPum/nqnAKinYWo7IngrtQM4B28zCCF7dC94NcxlAa3tTlBuiVBU0GH0JfGdBuvi+FG+w86DEC2k2/088w2A0xDyMoUAEQAAAF4AuIKtgBQA1A25UcQEXB3UxPo/NpYPAdke2ZjGDa2AS8CT89uODwOHW4zGYLSKIOL+1siv83WeBGT2jK3OgNGT5nnpiQwbN914KRbeFlF7xEHkKbcI+IYLyonHg2GpzhZyIoLeE9+7sc7Cpn+Ehr1XOuHHDFBou0YM0Gl2nBig3ulQSsrRW6Ov3mUSnAfRAR8PL3dApwbS0Z8PL31O3gDBdri4Cfu5fNXq7sPq4BuKd2LGmtihMwDhxSzowUCVYAwhn34ColWFuL+h3ht5kmPBaDlbUksSsmfBOAtbVyYtd/GU14LAS7n0cKLDzf4OcwDuyKApfWqrlhYsDVJLjXKmANgD5cpbXUGuAmqBis+u2l1wDX1nL7Vno+al2wcFaF56PXBZfOqnRst+1m9MjGZrjAEOBy7JpeU3/qur92EYq9QPTCvU2bNm3atFz/L8x48geuIN0AAAAASUVORK5CYII=", "snd_shoot": "data:audio/mpeg;base64,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AANIAAAAAKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv/zYsRvAAADSAAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqr/82DEcAAAA0gAAAAAqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=", "snd_hit": "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//NwwAAAAAAAAAAAAEluZm8AAAAPAAAABwAABP8AQ0NDQ0NDQ0NDQ0NDQ0NjY2NjY2NjY2NjY2NjY4KCgoKCgoKCgoKCgoKCoaGhoaGhoaGhoaGhoaGhwcHBwcHBwcHBwcHBwcHg4ODg4ODg4ODg4ODg4P//////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQCpQAAAAAAAAT/j6f7lwAAAAAAAAAAAAAAAAD/82DEABJgMpQ/QxgAKknJbs7nEREEAYG4fiAHwfB8HyhzghBD8HwfB/8EHfwfP/wQBAEDnwfPn/wQBAEDnwfB8H/wQBAMfg+D4Ph/4IAgCAYT9YPv+YUAANQk5xt0OFxKgUgIZILM7ZWBRKYWXUNq3NPDA2c4Zh10kqbO8oBHzMAUQlF8goxwsJAybFwB+ob+QEZkc2mgCqwNRAD/82LERTGC+oG/nJgB0pcSHSMcOAv0BcQHCwXYLjFzC5jM0IdRZJhTwbvC6kbg6TEul3MTI8fRu6hZolQogy5NGkvF5bGSJdLqTataLFwzDLBFTc6ZIGqRiZF4vLYyMS6XVV//n0CGEgRcn0TeTBdOn1qSS1LRR1qSS//+Ro0hOhLoMdWjCY/wQW1QVekFD/lpy27jclXi5i6nuQFO//NixA8jm4K0/9pAAzjo4yEE5A0BLlEdRGISeknfh6DMcOynZJyMIraU1UITB0H1/4s9OgSiAGxI33//DNYsIsXUHLV007sMoQjUZUOcwedKtljjpZ9v/3JKG5JA+xWFS6/9lT5rVpr/r5Xrn1q6X7WLVWJvUSC444krq1q9Y7lW7i/nXEoexDNOxMLqZBZgYAJgKF5hYFaCAxUCE//zYsQQIlmuYALrzJoViFBQYmbA7Hp3FnCctGAIIgoMwKAzvhDjiTzKiDfP86VDZNqQ4SQoYzwc6u1vWHanybxEot3n235ILErjJnyxLSdElkbd9iX5UEl8p0eDJeEcMzt7KciaVLSzmnX+ZlRcxZUpUTS4ECgQhOwVcyVpSoqGYFJOSl39dQtczhS5twMMrPJABX5IGmUNJyfUPuz/82DEFiJRLmQM2waVacPkREgNbYtB4SyuVikWyEfLzRLxtEjaq+kh76XZWKl0u3Y2KoYIeQWj5I5qcrWBf4P+9+6J2ZB0FIfHtnbTRQt7LwP2iwz2aVwPQY+qdnqcyRMD1KkZG5Kp0dW0Oi5xYWBzo4NUySpUxUjo///tmf//9VVSvVXybhhMZWdClxkTVDhUSYZYMCtTLwrpnav/82LEGx2h/kw0wYq4YBKtEsAqSotHcoFUSZ4rs6J2PLenI85cs881mvKfNmqXL6iowDOoqhTFINFU9blR20M5UMYtSotxF0wV1gqWF0nWhUKBUqAhcyMKkfnes7Oq+RqPctts4wid2IUhVzNhZ426grRmLlxQSYVQXfTMbdtF/LFaU8YDCA4Sdrd6Lx2JLBYmcJHQFAKH7AxmaMdL//NixDQcKQHkCsGGrGrBgcAoVcSCrgEBlCUOgq3H9/jAmAkAUVJHisKBV39DHAVqgKImwk9aJ46FB5GEvqArPLQqM89WIiRE71pMQU1FMy4xMDCqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg==", "snd_over": "data:audio/mpeg;base64,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I1LAHlYOHBJAu6dLBlmTwKNbKiWtOSwGZep9OuzKUbR5CgBI5nSbdNAjAzhoXDgFNRdBOzVk1Z//8SKtiKOW6l2XxiBT///7/1VUECQ4GAAhzh0IVEPpf//8GYhVuQ6JnQhyEU7Sff/+7JkQOKYYxhBQE4gQZaoAkYBK3+pVdRBJ6PqOxiI6Ria0wsGqtFAx+B0Eikri0v/zYsSbHpNSuL7CBQ0o5evl3URipYWC4LVqOheACGivljybMF0+VP/+TpEoeCEK60qSY7VBXGA3///W3QzGHYOQKEAAJ3FCAxkwDaTn/JtFTalngqPKpb/2no40DY8s9rf/5wRgcH4AQpOf6qevVGhaMZRUaE/wtKPOvLuKPyaGm2eJi2UzPS9SphyaCZbivpCnSlAAlfK0HWNbZTL/82DEsB5x6rRWwgUMr8Kk1AiT6qYXs3M7iX+Rv7Vq2W5lHOIiowDjRpZUd1ZGUgj//+jmYiHajUczynQRGjTV///q1K7KxSkeX///sj9CFJicUVUKUAFz81Eo2hyVvkwVM80xLKVkPzKnULl7rYtZeOKOEvmWK3tEBXofcSrOtOvvpc//lKVpcyDqhKO/JD1h4PONqV3xNRhyCzv/82LExR8b1rAewcsNDv87dHqXXu5y31KUx2UqSOU16tX//9aGpTeuyKGHmRn+ysfIvPMT+llJJIpUHSxlTEFNRTMuMTAwVVVVTwkycnqMZjmMpIowIcWGqmcm1OrLMrVy6Vza2GkdTGT0Qov5LXhzKIDAJhHP3nK8kUUWIlYRbQPCwiAIt9Spl0FlAUW+kvMLFdywV4iDoiAoaDoL//NixNgd8qqgNsIFKB4NA1/6cseWGgaEo8FQ1/4meoOgqJRE/1PsiVwldiVxVSmOwFGTVBxi3KBSp1aVBmyLeSJSOT3TUFhFkQuggEX7RFS+YWvRJItiITFQSC6TKYS0XQedprhQZF4rTFqJCTIq3EwpIg+MFG2SqpK3sYlByWGilBpktCWVFUiul2TlRTBMxWVFdiYrb5WJimisoP/zYsTkHSF+hBZ5iwTSorv9uUktVMVlJiSUwTMVVJXY1ZFSqSWKLFdkpSWu+VVJJaliqImiJLFVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/82DE/yZg5gQCwZMhVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU="};
+(function(){
+"use strict";
+
+/* ---------------------------------------------------------------- config */
+const W = 320, H = 693;          // 320:693 ~= 0.4618, the iPhone 13 mini ratio
+const VS = H / 480;              // vertical scale from the original 320x480 layout
+function V(n){ return n * VS; }
+const TOP = 48;
+const RAZOR_SCALE = 1.2;         // the blade is 20% wider than a plain ball
+const SHOT_R = 16;               // fixed; no longer a dial
+const SCORE_PX = 42;             // foot score size
+const SCORE_BASE = 26;           // its baseline, measured up from the bottom
+const ARROW_GAP = 5;             // clear air between the ball and the arrow tail                  // notch clearance: 50pt on a 13 mini, 59pt on a Dynamic Island phone
+/* Calibration, fixed. These are the values arrived at by hand; the tuning
+   panel that produced them is not part of this build. */
+const P = {
+  speed:     420,    // launch speed, px/s
+  friction:  0.60,   // fraction of speed kept per second
+  bounce:    0.92,   // speed kept per wall or ball impact
+  stopAt:    18,     // below this the ball is considered at rest, px/s
+  growTime:  0.50,   // seconds to reach final size once at rest
+  baseline:  578,    // y of the dashed line
+  launch:    648,    // y of the ball on the launch point
+  sweep:     100,    // arrow rotation, degrees per second
+  aimDelay:  0.03,   // dead time after a press before the arrow moves
+  startBalls: 0      // balls on the field at the start of a game
+};
+
+const store = {
+  get(k, d){ try { const v = localStorage.getItem("frict."+k); return v===null?d:JSON.parse(v); } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem("frict."+k, JSON.stringify(v)); } catch(e){} }
+};
+
+/* ---------------------------------------------------------------- assets */
+const IMG = {};
+["arrow"].forEach(function(k){
+  const i = new Image(); i.src = A[k]; IMG[k] = i;
+});
+/* Score numerals are set in Archivo Black. NUMCAP is its cap height as a
+   fraction of the font size, used to centre digits inside the score rings. */
+const ARCHIVO = '"Archivo",Helvetica,Arial,sans-serif';
+const FREDOKA = '"Fredoka","Trebuchet MS",sans-serif';
+const NUMCAP  = 0.72;   // Archivo cap height as a fraction of font size
+
+let actx = null; const BUF = {};
+function audioInit(){
+  if (actx) return;
+  try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ return; }
+  /* klik4 is the tap (menus, a ball surviving a hit); klik1 is the pop
+     (a ball leaving the field); gameover1 ends the round. Nothing on release. */
+  [["pop",A.snd_shoot],["tap",A.snd_hit],["over",A.snd_over]].forEach(function(p){
+    const bin = atob(p[1].split(",")[1]);
+    const arr = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+    actx.decodeAudioData(arr.buffer, function(b){ BUF[p[0]] = b; }, function(){});
+  });
+}
+let soundOn = store.get("sound", true);
+function play(name, vol){
+  if (!soundOn || !actx || !BUF[name]) return;
+  try {
+    const s = actx.createBufferSource(); s.buffer = BUF[name];
+    const g = actx.createGain(); g.gain.value = vol===undefined?0.7:vol;
+    s.connect(g); g.connect(actx.destination); s.start();
+  } catch(e){}
+}
+
+/* ---------------------------------------------------------------- canvas */
+const cvs = document.getElementById("game");
+const ctx = cvs.getContext("2d");
+let q = 1;
+/* Sizing is measured only when the element actually changes size. Reading
+   getBoundingClientRect inside the animation loop forced a synchronous layout
+   of the whole page on every frame, which is what made this stutter. The
+   backing store is capped at 2x: past that the extra pixels cost real
+   fill rate and buy nothing visible on flat vector art. */
+function measure(){
+  const rect = cvs.getBoundingClientRect();
+  if (!rect.width) return;
+  const want = Math.min(2, Math.max(1, (window.devicePixelRatio||1) * (rect.width / W)));
+  if (Math.abs(want - q) < 0.02 && cvs.width) return;
+  q = want;
+  cvs.width  = Math.round(W * q);
+  cvs.height = Math.round(H * q);
+}
+window.addEventListener("resize", measure);
+window.addEventListener("orientationchange", measure);
+if (window.ResizeObserver) new ResizeObserver(measure).observe(cvs);
+
+/* ---------------------------------------------------------------- scenes */
+const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7 };
+let scene = SC.MENU;
+let tutStep = 0;
+
+const MENUS = {};
+/* Circle geometry is in the original 320x480 space; y is scaled by V() at load,
+   while r and fs are canvas pixels. A grown button keeps its left and top edges
+   by shifting its centre: dy = dr / VS. */
+MENUS[SC.MENU] = [
+  { x:176, y:175.5, r:64, fs:34, label:"play!", big:true, act:function(){ scene = SC.PLAYMENU; } },
+  { x: 82, y: 80,   r:44, fs:16, label:"high\nscore",     act:function(){ scene = SC.HISCORE; } },
+  { x:238, y: 84,   r:30, fs:30, label:"?",                act:function(){ tutStep=0; scene = SC.TUT; } },
+  { x: 52, y:166,   r:24, fs:22, label:"i",                act:function(){ scene = SC.ABOUT; } },
+  { x:102, y:272,   r:46, fs:16, label:"settings",         act:function(){ scene = SC.SETTINGS; } }
+];
+MENUS[SC.PLAYMENU] = [
+  { x:150, y:118, r:52, fs:20, label:"new\ngame", big:true, act:function(){ newGame(); } },
+  { x: 96, y:246, r:44, fs:15, label:"resume",              act:function(){ if (resumable()) scene = SC.GAME; } },
+  { x:212, y:272, r:34, fs:14, label:"back",                act:function(){ scene = SC.MENU; } }
+];
+MENUS[SC.ABOUT]   = [ { x: 40, y:440, r:26, fs:12, label:"menu", act:function(){ scene = SC.MENU; } } ];
+MENUS[SC.HISCORE] = [
+  { x:160, y:300, r:40, fs:16, label:"reset", act:function(){ high = 0; store.set("high", 0); } },
+  { x:250, y:378, r:32, fs:14, label:"back",  act:function(){ scene = SC.MENU; } }
+];
+MENUS[SC.SETTINGS] = [
+  { x:160, y:170, r:58, label:"", sound:true,
+    act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } },
+  /* dead centre on the settings bubble of the main menu, so the two line up */
+  { x:102, y:272, r:38, fs:14, label:"back", act:function(){ scene = SC.MENU; } }
+];
+MENUS[SC.TUT] = [
+  { x: 40, y:440, r:26, fs:24, label:"\u2039", act:function(){ tutStep = Math.max(0, tutStep-1); } },
+  { x:280, y:440, r:26, fs:24, label:"\u203a", act:function(){ if (tutStep>=4) scene = SC.MENU; else tutStep++; } },
+  { x:280, y: 45, r:23, fs:11, label:"menu",    act:function(){ scene = SC.MENU; } }
+];
+MENUS[SC.OVER] = [
+  { x:104, y:330, r:46, label:"replay", big:true, act:function(){ newGame(); } },
+  { x:216, y:352, r:34, label:"menu",             act:function(){ scene = SC.MENU; } }
+];
+
+Object.keys(MENUS).forEach(function(k){ MENUS[k].forEach(function(b){ b.y = V(b.y); }); });
+
+const TUT_TEXT = [
+  ["FRICT",       ["Your goal is to shoot balls into the playfield and score points by removing them again."]],
+  ["SHOOT",       ["Touch and hold anywhere on the screen, then release to shoot in the direction of the arrow. If your ball hits the dashed line on its way down, the game is over."]],
+  ["SIZE",        ["When the ball stops moving, its size will increase until the ball touches an edge or another ball."]],
+  ["SCORE",       ["To score points, remove balls from the playfield by hitting them twice."]],
+  ["BONUS BALLS", ["Double ball: every ball removed by this ball adds 2 to your score.",
+                   "Triple ball: every ball removed by this ball adds 3 to your score.",
+                   "The razor: this ball removes everything in its path."]]
+];
+
+/* ---------------------------------------------------------------- state */
+let statics = [];
+let ball = null;
+let score = 0;
+let high = store.get("high", 0);
+let nextType = "normal";
+let aiming = false, aimAngle = 0, aimDir = 1, armed = false;
+let pts = [];
+let prevAim = 0, alphaT = 0;
+let aimDelay = 0;          // dead time after a press, before the arrow moves
+let dying = 0;             // seconds of play left to watch before the game over screen
+function lerp(a, b, t){ return a + (b - a) * t; }
+let inPlay = false;
+let overFlash = 0;
+
+/* The arrow sprite is 30x56 with its art running from 11 to 54px above the
+   pivot. We push it out so its tail clears the ball by ARROW_GAP, which puts
+   the tip ARROW_LEN above the ball's centre. At the default launch of 648 and
+   a baseline of 578 that leaves 6px of air under the dashed line. */
+const ARROW_SHIFT = (SHOT_R + ARROW_GAP) - 11;
+const ARROW_LEN   = 54 + ARROW_SHIFT;
+function launchY(){ return Math.min(H - SHOT_R - 8, P.launch); }
+/* Resume is only offered for a game that is genuinely mid-play with a ball
+   waiting. A finished round leaves its statics behind but clears inPlay. */
+function resumable(){ return inPlay && ball !== null; }
+
+/* The first ball of a game is always plain. From then on the razor is drawn
+   first, on a pity counter: 2.5% plus half a point for every ball since the
+   last razor, so turn 1 is 3%, turn 10 is 7.5%, turn 20 is 12.5%. A razor
+   resets the counter. If the razor misses, the striped balls are drawn flat. */
+let turn = 0, pity = 0;
+function razorChance(){ return Math.min(1, (2.5 + pity / 2) / 100); }
+function dealType(){
+  if (turn === 0) { nextType = "normal"; turn++; pity++; return; }
+  turn++;
+  if (Math.random() < razorChance()) {
+    nextType = "razor"; pity = 0;
+  } else {
+    const r = Math.random();
+    nextType = r < 0.07 ? "triple" : r < 0.18 ? "double" : "normal";
+  }
+  pity++;
+}
+function makeBall(type){
+  const rr = type === "razor" ? SHOT_R * RAZOR_SCALE : SHOT_R;
+  const ly = launchY();
+  ball = { x: W/2, y: ly, px: W/2, py: ly, vx:0, vy:0, r: rr, pr: rr,
+           type: type, state:"aim", spin:0, pspin:0, spinVel:0 };
+  armed = false;
+}
+function readyBall(){ dealType(); makeBall(nextType); }
+/* GameDirector in the original had saveGame and isCurrentGameResumable, so a
+   round survived leaving the app. This does the same through localStorage. */
+function saveGame(){
+  if (!inPlay || !ball) { store.set("game", null); return; }
+  store.set("game", { s: statics, sc: score, t: turn, p: pity, ty: ball.type });
+}
+function loadGame(){
+  const g = store.get("game", null);
+  if (!g || !g.s || !Array.isArray(g.s)) return false;
+  statics = g.s.map(function(o){ return { x:o.x, y:o.y, r:o.r, hits:o.hits, cool:0, type:"normal" }; });
+  score = g.sc || 0; turn = g.t || 1; pity = g.p || 0;
+  makeBall(g.ty || "normal");
+  pts = []; inPlay = true;
+  return true;
+}
+function newGame(){
+  statics = []; pts = []; score = 0; overFlash = 0; dying = 0;
+  aimAngle = 0; aimDir = 1; aimDelay = 0;
+  turn = 0; pity = 0;
+  const n = Math.round(P.startBalls);
+  let guard = 0;
+  while (statics.length < n && guard++ < 600) {
+    const r = 22 + Math.random()*16;
+    const x = r + 6 + Math.random()*(W - 2*r - 12);
+    const y = TOP + 24 + Math.random()*(P.baseline - TOP - 130);
+    let ok = true;
+    for (const s of statics) if (Math.hypot(x-s.x, y-s.y) < s.r + r + 6) { ok = false; break; }
+    if (ok) statics.push({ x:x, y:y, r:r, hits:2, cool:0, type:"normal" });
+  }
+  readyBall();
+  inPlay = true;
+  saveGame();
+  scene = SC.GAME;
+}
+
+/* ---------------------------------------------------------------- input */
+function canvasPoint(ev){
+  const rect = cvs.getBoundingClientRect();
+  return { x: (ev.clientX - rect.left) / rect.width * W, y: (ev.clientY - rect.top) / rect.height * H };
+}
+function menuHit(p){
+  const list = MENUS[scene]; if (!list) return null;
+  for (const b of list) if (Math.hypot(p.x-b.x, p.y-b.y) <= b.r) return b;
+  return null;
+}
+function press(p){
+  audioInit(); if (actx && actx.state === "suspended") actx.resume();
+  if (scene === SC.GAME) {
+    // resumes from the angle it stopped at, but always sweeping rightward first
+    if (ball && ball.state === "aim") { aiming = true; aimDir = 1; aimDelay = P.aimDelay; }
+    return;
+  }
+  /* the sound button makes its own noise, or none, so it is skipped here */
+  if (p) { const b = menuHit(p); if (b) { if (!b.sound) play("tap", 0.5); b.act(); } }
+}
+function release(){
+  if (scene === SC.GAME && aiming && ball && ball.state === "aim") {
+    aiming = false;
+    const a = aimAngle;
+    ball.vx =  Math.sin(a) * P.speed;
+    ball.vy = -Math.cos(a) * P.speed;
+    ball.state = "fly";
+    armed = false;
+  }
+  aiming = false;
+}
+cvs.addEventListener("pointerdown", function(e){ e.preventDefault(); cvs.focus(); press(canvasPoint(e)); });
+window.addEventListener("pointerup", function(){ release(); });
+window.addEventListener("pointercancel", function(){ aiming = false; });
+cvs.addEventListener("keydown", function(e){
+  if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!aiming) press(null); }
+  else if (e.key === "Escape") { if (scene === SC.GAME) scene = SC.MENU; }
+});
+cvs.addEventListener("keyup", function(e){ if (e.key === " " || e.key === "Enter") { e.preventDefault(); release(); } });
+
+/* ---------------------------------------------------------------- rules */
+function mult(type){ return type === "double" ? 2 : type === "triple" ? 3 : 1; }
+/* Striped balls appear to roll off whatever they touch. Cosmetic only: the kick
+   comes from the tangential part of the velocity at the contact and never feeds
+   back into vx or vy. */
+function spinKick(nx, ny){
+  if (ball.type !== "double" && ball.type !== "triple") return;
+  const vt = ball.vx * (-ny) + ball.vy * nx;
+  ball.spinVel += vt / Math.max(8, ball.r) * 0.55;
+  if (ball.spinVel >  16) ball.spinVel =  16;
+  if (ball.spinVel < -16) ball.spinVel = -16;
+}
+
+function removeStatic(s, gain){
+  const i = statics.indexOf(s); if (i < 0) return;
+  statics.splice(i, 1);
+  score += gain;
+  pts.push({ x:s.x, y:s.y, n:gain, t:0 });
+  play("pop", 0.55);
+  if (score > high) { high = score; store.set("high", high); }
+}
+function hitStatic(s, type){
+  if (s.cool > 0) return;
+  s.cool = 0.18;
+  if (type === "razor") { removeStatic(s, 1); return; }
+  s.hits -= 1;
+  if (s.hits <= 0) removeStatic(s, mult(type));
+  else play("tap", 0.5);
+}
+/* Death is not instant: the sound lands and the ball is left to travel for a
+   moment so you see what killed you, then the screen comes up. */
+const DEATH_HOLD = 0.35;
+const DEATH_SLOWMO = 0.30;   // the last moment plays slowly enough to read
+function gameOver(){
+  if (dying > 0) return;
+  aiming = false;
+  inPlay = false; saveGame();
+  play("over", 0.7);
+  dying = DEATH_HOLD;
+}
+function endRound(){
+  ball = null; overFlash = 1; dying = 0;
+  scene = SC.OVER;
+}
+function land(){
+  if (!armed) { gameOver(); return; }
+  let t = Math.min(ball.x, W - ball.x, ball.y - TOP, P.baseline - ball.y);
+  for (const s of statics) t = Math.min(t, Math.hypot(ball.x-s.x, ball.y-s.y) - s.r);
+  t = Math.max(SHOT_R, t);
+  ball.type = "normal";
+  ball.r0 = ball.r; ball.target = t; ball.gt = 0;
+  ball.state = "grow";
+}
+
+function stepBall(dt){
+  if (!ball) return;
+  ball.px = ball.x; ball.py = ball.y; ball.pr = ball.r; ball.pspin = ball.spin;
+  prevAim = aimAngle;
+  if (ball.state === "aim") {
+    if (aiming) {
+      /* A short dead time so a quick tap barely moves the arrow at all. */
+      if (aimDelay > 0) { aimDelay -= dt; return; }
+      const lim = 80 * Math.PI / 180;   // 160 degrees of release arc in total
+      aimAngle += aimDir * P.sweep * Math.PI/180 * dt;
+      if (aimAngle >  lim) { aimAngle =  lim; aimDir = -1; }
+      if (aimAngle < -lim) { aimAngle = -lim; aimDir =  1; }
+    }
+    return;
+  }
+  if (ball.state === "spend") {
+    ball.gt += dt;
+    const k = Math.min(1, ball.gt / 0.32);
+    ball.r = ball.r0 * (1 - k*k);
+    ball.spin += (1 - k) * 9 * dt;
+    if (k >= 1) readyBall();
+    return;
+  }
+  if (ball.state === "grow") {
+    ball.gt += dt;
+    const k = P.growTime > 0 ? Math.min(1, ball.gt / P.growTime) : 1;
+    ball.r = ball.r0 + (ball.target - ball.r0) * k;
+    if (k >= 1) {
+      ball.r = ball.target;
+      statics.push({ x:ball.x, y:ball.y, r:ball.r, hits:2, cool:0, type:"normal" });
+      readyBall();
+      saveGame();
+    }
+    return;
+  }
+
+  const sp = Math.hypot(ball.vx, ball.vy);
+  if (ball.type === "razor") ball.spin += sp * 0.030 * dt;
+  else if (ball.type === "double" || ball.type === "triple") {
+    ball.spin += ball.spinVel * dt;
+    ball.spinVel *= Math.pow(0.22, dt);
+  }
+  const sub = Math.max(1, Math.min(8, Math.ceil(sp * dt / 3)));
+  const h = dt / sub;
+  for (let k = 0; k < sub; k++) {
+    const f = Math.pow(P.friction, h);
+    ball.vx *= f; ball.vy *= f;
+    ball.x += ball.vx * h;
+    ball.y += ball.vy * h;
+
+    if (ball.x - ball.r < 0) { ball.x = ball.r; spinKick(1, 0); ball.vx = -ball.vx * P.bounce; }
+    if (ball.x + ball.r > W) { ball.x = W - ball.r; spinKick(-1, 0); ball.vx = -ball.vx * P.bounce; }
+    if (ball.y - ball.r < TOP) { ball.y = TOP + ball.r; spinKick(0, 1); ball.vy = -ball.vy * P.bounce; }
+
+    for (let i = statics.length - 1; i >= 0; i--) {
+      const s = statics[i];
+      const dx = ball.x - s.x, dy = ball.y - s.y;
+      const d = Math.hypot(dx, dy);
+      if (d >= s.r + ball.r) continue;
+      if (ball.type === "razor") { hitStatic(s, "razor"); continue; }
+      const nx = dx/(d||1), ny = dy/(d||1);
+      ball.x = s.x + nx*(s.r + ball.r);
+      ball.y = s.y + ny*(s.r + ball.r);
+      spinKick(nx, ny);
+      const scoring = dying <= 0;
+      const dot = ball.vx*nx + ball.vy*ny;
+      ball.vx = (ball.vx - 2*dot*nx) * P.bounce;
+      ball.vy = (ball.vy - 2*dot*ny) * P.bounce;
+      if (scoring) hitStatic(s, ball.type);
+    }
+
+    if (!armed && ball.y + ball.r < P.baseline) armed = true;
+    if (dying <= 0 && ball.type !== "razor") {
+      /* Turning back downward without ever having cleared the line ends it on
+         the spot, rather than letting the ball wander below and off screen. */
+      if (!armed && ball.vy > 0) { gameOver(); break; }
+      if (armed && ball.vy > 0 && ball.y + ball.r >= P.baseline) { gameOver(); break; }
+    }
+    if (ball.y - ball.r > H + 40) {
+      if (ball.type === "razor") { readyBall(); return; }
+      if (dying > 0) { endRound(); return; }
+      gameOver(); return;
+    }
+  }
+
+  if (dying <= 0 && Math.hypot(ball.vx, ball.vy) < P.stopAt) {
+    if (ball.type === "razor") {
+      play("tap", 0.35);
+      ball.r0 = ball.r; ball.gt = 0; ball.state = "spend";
+    } else land();
+  }
+}
+
+function stepWorld(dt){
+  if (dying > 0) { dying -= dt; if (dying <= 0) { endRound(); return; } }
+  for (const s of statics) if (s.cool > 0) s.cool -= dt;
+  for (let i = pts.length - 1; i >= 0; i--) {
+    pts[i].t += dt; pts[i].y -= 26*dt;
+    if (pts[i].t > 0.9) pts.splice(i, 1);
+  }
+  if (overFlash > 0) overFlash = Math.max(0, overFlash - dt*1.4);
+  if (scene === SC.GAME) stepBall(dying > 0 ? dt * DEATH_SLOWMO : dt);
+}
+
+/* ---------------------------------------------------------------- draw */
+/* Vector balls. Proportions measured off the decoded PVRTC textures:
+   ring outer 1.00R, ring inner 0.875R, inner disc 0.75R, stripe width 0.17R;
+   razor hole 0.55R, spike valley 0.72R, 12 points. */
+function stripeBars(x, y, r, n, clipR, color, spin){
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, clipR, 0, Math.PI*2); ctx.clip();
+  ctx.translate(x, y); ctx.rotate(-Math.PI/4 + (spin || 0));
+  ctx.fillStyle = color;
+  const wd = Math.max(1, r*0.17), span = r*1.6, gap = n === 2 ? r*0.80 : r*0.52;
+  for (let i = 0; i < n; i++) ctx.fillRect(-span, (i - (n-1)/2)*gap - wd/2, span*2, wd);
+  ctx.restore();
+}
+function drawBall(x, y, r, type, hits, spin){
+  const G = "#00ff00";
+  if (r <= 0.6) return;
+  if (type === "razor") {
+    const pts = 12, off = spin || 0;
+    ctx.beginPath();
+    for (let i = 0; i < pts*2; i++) {
+      const a = i/(pts*2)*Math.PI*2 - Math.PI/2 + off;
+      const rr = (i % 2 === 0) ? r : r*0.72;
+      const px = x + Math.cos(a)*rr, py = y + Math.sin(a)*rr;
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+    ctx.moveTo(x + r*0.55, y);
+    ctx.arc(x, y, r*0.55, 0, Math.PI*2, true);
+    ctx.closePath();
+    ctx.fillStyle = G; ctx.fill("evenodd");
+    return;
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, r*0.9375, 0, Math.PI*2);
+  ctx.lineWidth = Math.max(1, r*0.125);
+  ctx.strokeStyle = G;
+  ctx.stroke();
+  const n = type === "double" ? 2 : type === "triple" ? 3 : 0;
+  if (hits >= 2) {
+    ctx.beginPath(); ctx.arc(x, y, r*0.75, 0, Math.PI*2);
+    ctx.fillStyle = G; ctx.fill();
+    if (n) stripeBars(x, y, r, n, r*0.75, "#000000", spin);
+  } else if (n) {
+    stripeBars(x, y, r, n, r*0.80, G, spin);
+  }
+}
+/* x,y is the baseline. drawNumberMid centres the digits on y instead. */
+function drawNumber(n, x, y, px, align){
+  ctx.font = "900 " + px + "px " + ARCHIVO;
+  ctx.textAlign = align || "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#00ff00";
+  ctx.fillText(String(n), x, y);
+}
+function drawNumberMid(n, x, cy, px, align){
+  drawNumber(n, x, cy + px * NUMCAP / 2, px, align);
+}
+function ring(x, y, r, lw){
+  ctx.beginPath(); ctx.arc(x, y, r - lw/2, 0, Math.PI*2);
+  ctx.fillStyle = "#000"; ctx.fill();
+  ctx.lineWidth = lw; ctx.strokeStyle = "#00ff00"; ctx.stroke();
+}
+function label(text, x, y, size, color, align, weight, face){
+  ctx.font = (weight||500) + " " + size + "px " + (face || FREDOKA);
+  ctx.textAlign = align || "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color || "#00ff00";
+  const lines = String(text).split("\n");
+  const lh = size * 1.02;
+  for (let i=0;i<lines.length;i++) ctx.fillText(lines[i], x, y + (i - (lines.length-1)/2) * lh);
+}
+/* Body copy is Archivo at weight 300, drawn straight with no width tricks. */
+const BODYWT = 300;
+function body(text, x, y, size, maxw, color){
+  ctx.font = BODYWT + " " + size + "px " + ARCHIVO;
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillStyle = color || "#d8f5d8";
+  const words = String(text).split(" ");
+  let line = "", yy = y;
+  for (let i=0;i<words.length;i++){
+    const test = line ? line + " " + words[i] : words[i];
+    if (ctx.measureText(test).width > maxw && line) { ctx.fillText(line, x, yy); yy += size*1.42; line = words[i]; }
+    else line = test;
+  }
+  if (line) { ctx.fillText(line, x, yy); yy += size*1.42; }
+  return yy;
+}
+function drawButton(b){
+  if (b.sound) {
+    ring(b.x, b.y, b.r, 5);
+    /* The cone spans -18..+6 and the waves reach +33, so the group's own centre
+       sits about 8px right of the origin. Shift left by that to centre it. */
+    ctx.save();
+    ctx.translate(b.x - 8, b.y);
+    ctx.strokeStyle = "#00ff00"; ctx.fillStyle = "#00ff00"; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-18, -8); ctx.lineTo(-6, -8); ctx.lineTo(6, -20);
+    ctx.lineTo(6, 20); ctx.lineTo(-6, 8); ctx.lineTo(-18, 8);
+    ctx.closePath(); ctx.fill();
+    if (soundOn) {
+      for (let i=1;i<=2;i++){
+        ctx.beginPath(); ctx.arc(8, 0, 8+i*8, -Math.PI/3, Math.PI/3); ctx.stroke();
+      }
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(16, -11); ctx.lineTo(32, 11);
+      ctx.moveTo(32, -11); ctx.lineTo(16, 11);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+  ring(b.x, b.y, b.r, 5);
+  label(b.label, b.x, b.y, b.fs || 14, "#00ff00", "center", b.big ? 600 : 500);
+}
+function drawMenu(){
+  const list = MENUS[scene]; if (!list) return;
+  for (const b of list) {
+    if (scene === SC.PLAYMENU && b.label === "resume" && !resumable()) {
+      ctx.save(); ctx.globalAlpha = 0.28; drawButton(b); ctx.restore();
+    } else if (scene === SC.TUT && b.label === "‹" && tutStep === 0) {
+      ctx.save(); ctx.globalAlpha = 0.28; drawButton(b); ctx.restore();
+    } else drawButton(b);
+  }
+}
+function wordmark(x, y, size){
+  label("frict", x, y, size, "#00ff00", "center", 600);
+}
+function topRule(){
+  ctx.save();
+  ctx.strokeStyle = "#007f00"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, TOP); ctx.lineTo(W, TOP); ctx.stroke();
+  ctx.restore();
+}
+function baseline(){
+  ctx.save();
+  ctx.strokeStyle = "#007f00"; ctx.lineWidth = 2; ctx.setLineDash([16,16]);
+  ctx.beginPath(); ctx.moveTo(8, P.baseline); ctx.lineTo(312, P.baseline); ctx.stroke();
+  ctx.restore();
+}
+
+function drawGame(){
+  topRule();
+  baseline();
+  for (const s of statics) drawBall(s.x, s.y, s.r, s.type, s.hits);
+
+  if (ball) {
+    const bx = lerp(ball.px, ball.x, alphaT), by = lerp(ball.py, ball.y, alphaT);
+    drawBall(bx, by, lerp(ball.pr, ball.r, alphaT), ball.type, 2,
+             lerp(ball.pspin, ball.spin, alphaT));
+    if (ball.state === "aim") {
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(lerp(prevAim, aimAngle, alphaT));
+      ctx.globalAlpha = aiming ? 1 : 0.45;
+      if (IMG.arrow.complete && IMG.arrow.naturalWidth) ctx.drawImage(IMG.arrow, -15, -56 - ARROW_SHIFT, 30, 56);
+      ctx.restore();
+    }
+  }
+
+  for (const p of pts) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - p.t/0.9);
+    label("+" + p.n, p.x, p.y, 20, "#00ff00", "center", 600);
+    ctx.restore();
+  }
+
+  const npx = SCORE_PX, by = H - SCORE_BASE;
+  drawNumber(score, 12, by, npx, "left");
+  drawNumber(high, 308, by, npx, "right");
+  ctx.font = "900 " + npx + "px " + ARCHIVO;
+  const hw = ctx.measureText(String(high)).width;
+  label("best", 308 - hw/2, by - npx * NUMCAP - 13, 15, "#00ff00", "center", 500);
+}
+
+function drawOver(){
+  drawGame();
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0," + (0.91 + overFlash*0.06) + ")";
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+  label("game\nover", 160, V(86), 36, "#00ff00", "center", 600);
+  ring(160, V(196), 62, 5);
+  drawNumberMid(score, 160, V(196), 58, "center");
+  const nb = score >= high && score > 0;
+  label(nb ? "new best!" : "best: " + high, 160, V(268), nb ? 22 : 19, "#00ff00", "center", 500);
+  drawMenu();
+}
+
+function drawTitle(){
+  drawMenu();
+  wordmark(160, V(356), 46);
+  ctx.save(); ctx.globalAlpha = 0.55;
+  label("sjimpansee · 2009", 160, V(388), 11, "#007f00", "center", 400);
+  ctx.restore();
+}
+
+function drawTut(){
+  const t = TUT_TEXT[tutStep];
+  /* The original set these in caps; everything else in this game is lowercase. */
+  label(t[0].toLowerCase(), 24, V(54), 24, "#00ff00", "left", 600);
+  let y = V(88);
+  for (const para of t[1]) y = body(para, 24, y, 18, 272) + 10;
+
+  if (tutStep === 1) {
+    /* Same dashed line and same launch point the playfield uses, so the
+       illustration and the real thing sit at identical heights. */
+    baseline();
+    const ly = launchY();
+    ctx.save(); ctx.translate(160, ly); ctx.rotate(-0.35);
+    if (IMG.arrow.complete) ctx.drawImage(IMG.arrow, -15, -56 - ARROW_SHIFT, 30, 56);
+    ctx.restore();
+    drawBall(160, ly, SHOT_R, "normal", 2);
+  } else if (tutStep === 2) {
+    drawBall(90, V(320), 13, "normal", 2);
+    drawBall(210, V(320), 42, "normal", 2);
+    ctx.save(); ctx.globalAlpha = .45; ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 2;
+    ctx.setLineDash([4,5]); ctx.beginPath(); ctx.arc(210, V(320), 52, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+  } else if (tutStep === 3) {
+    drawBall(96, V(322), 37, "normal", 2);
+    drawBall(214, V(322), 37, "normal", 1);
+    label("2 hits left", 96, V(357), 12, "#007f00", "center", 500);
+    label("1 hit left", 214, V(357), 12, "#007f00", "center", 500);
+  } else if (tutStep === 4) {
+    /* Labels flush left to one another, the whole block centred on the screen. */
+    const rows = ["double","triple","razor"];
+    const br = 17, bigR = br * RAZOR_SCALE, gap = 13;
+    ctx.font = "500 15px " + FREDOKA;
+    let tw = 0;
+    for (let i=0;i<3;i++) tw = Math.max(tw, ctx.measureText(rows[i]).width);
+    const gx = 160 - (bigR*2 + gap + tw)/2 + bigR;
+    const tx = gx + bigR + gap;
+    for (let i=0;i<3;i++){
+      const yy = V(300 + i*42);
+      drawBall(gx, yy, rows[i] === "razor" ? bigR : br, rows[i], 2);
+      label(rows[i], tx, yy, 15, "#00ff00", "left", 500);
+    }
+  } else {
+    drawBall(160, V(322), 46, "normal", 2);
+  }
+  drawMenu();
+}
+
+function drawAbout(){
+  wordmark(160, V(70), 44);
+  label("reconstructed", 160, V(96), 16, "#00bf00", "center", 500);
+  let y = V(160);
+  y = body("Frict was created by Joris Truyen and published by Sjimpansee in April 2009, built on the cocos2d-iphone engine.", 30, y, 16, 260) + 14;
+  body("This version was rebuilt from the original app bundle and updated for modern phones.", 30, y, 16, 260);
+  drawMenu();
+}
+
+function drawHiscore(){
+  label("high\nscore", 160, V(96), 30, "#00ff00", "center", 600);
+  ring(160, V(210), 68, 5);
+  drawNumberMid(high, 160, V(210), 64, "center");
+  drawMenu();
+}
+
+function drawSettings(){
+  label("settings", 160, V(76), 28, "#00ff00", "center", 600);
+  label(soundOn ? "sound on" : "sound off", 160, V(225), 15, "#007f00", "center", 500);
+  drawMenu();
+}
+
+function render(){
+  ctx.setTransform(q, 0, 0, q, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, W, H);
+  if      (scene === SC.GAME)     drawGame();
+  else if (scene === SC.OVER)     drawOver();
+  else if (scene === SC.TUT)      drawTut();
+  else if (scene === SC.ABOUT)    drawAbout();
+  else if (scene === SC.HISCORE)  drawHiscore();
+  else if (scene === SC.SETTINGS) drawSettings();
+  else if (scene === SC.PLAYMENU) { drawMenu(); wordmark(160, V(356), 46); }
+  else                            drawTitle();
+}
+
+/* Fixed timestep. A 13 mini drives the display at 60Hz and a 17 Pro at 120Hz;
+   stepping a constant 1/120s makes both simulate exactly the same game. */
+const STEP = 1/120;
+let last = 0, acc = 0;
+function frame(ts){
+  let dt = last ? (ts - last)/1000 : STEP;
+  last = ts;
+  if (dt > 0.25) dt = 0.25;
+  acc += dt;
+  let guard = 0;
+  while (acc >= STEP && guard++ < 60) { stepWorld(STEP); acc -= STEP; }
+  /* Whatever is left in the accumulator is how far past the last physics step
+     this frame sits. Drawing at that fraction between the previous and current
+     state is what keeps motion smooth when the display's cadence is not an
+     exact multiple of the step, which is the normal case on real hardware. */
+  alphaT = Math.max(0, Math.min(1, acc / STEP));
+  render();
+  requestAnimationFrame(frame);
+}
+
+/* ---------------------------------------------------------------- boot */
+function start(saved){
+  if (saved && typeof saved.high === "number" && saved.high > high) high = saved.high;
+  loadGame();
+  /* A face used only by canvas fillText is not always fetched, because nothing
+     in the DOM references it. Ask for it explicitly. */
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load('900 42px "Archivo"');
+    document.fonts.load('300 18px "Archivo"');
+    document.fonts.load('400 13px "Archivo"');
+    document.fonts.load('600 40px "Fredoka"');
+  }
+  measure();
+  requestAnimationFrame(frame);
+}
+if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
+  window.claude.hot.snapshot(function(){ return { high: high }; });
+}
+if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start);
+else start((window.claude && window.claude.hot && window.claude.hot.data) || {});
+
+})();
+</script>
+</body>
+</html>
