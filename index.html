@@ -16,8 +16,13 @@
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
   body{margin:0;background:#000;-webkit-font-smoothing:antialiased}
-  .screen{width:100vw;height:100vh;display:flex;align-items:center;
-          justify-content:center;background:#000}
+  /* Fixed and centred in both orientations. The rotated state used to switch
+     this element from static to fixed, which means the box it is positioned
+     against changes underneath it, and iOS does not always put it back where it
+     was. Now only the two dimensions and the rotate term change. */
+  .screen{position:fixed;top:50%;left:50%;width:100vw;height:100vh;
+          transform:translate(-50%,-50%);transform-origin:center;
+          display:flex;align-items:center;justify-content:center;background:#000}
   @supports (height:1svh){ .screen{ height:100svh; } }
   .screen canvas{display:block;touch-action:none;cursor:pointer;
     user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
@@ -28,8 +33,8 @@
      whole screen turned back a quarter turn instead. The max-height guard keeps
      a desktop browser in landscape out of it. */
   @media (orientation:landscape) and (max-height:600px){
-    .screen{position:fixed;top:50%;left:50%;width:100vh;height:100vw;
-            transform:translate(-50%,-50%) rotate(90deg);transform-origin:center}
+    .screen{width:100vh;height:100vw;
+            transform:translate(-50%,-50%) rotate(90deg)}
     /* Turning the other way has to be answered the other way, or the game reads
        upside down in one of the two landscapes. */
     html[data-rot="ccw"] .screen{transform:translate(-50%,-50%) rotate(-90deg)}
@@ -128,6 +133,44 @@ const store = {
   set(k, v){ try { localStorage.setItem("frict."+k, JSON.stringify(v)); } catch(e){} }
 };
 
+/* --------------------------------------------------------------- tuning */
+/* Captured before anything saved is read back, so Restore defaults returns to
+   the values the game shipped with rather than to whatever was last saved. */
+const DEF = Object.assign({}, P);
+/* key, label, min, max, step, unit. Growth time, arrow sweep, aim delay and
+   starting balls are settled and deliberately have no control. */
+const DIALS = [
+  ["speed",    "launch speed",   200, 800,  10, "px/s"],
+  ["friction", "speed kept /s",  .05, .95, .01, ""],
+  ["gripAt",   "grip threshold",   0, 250,   5, "px/s"],
+  ["grip",     "grip strength",  .05, 1.0, .01, ""],
+  ["bounce",   "bounce",         .60, 1.0, .01, ""],
+  ["stopAt",   "stop threshold",   1,  60,   1, "px/s"]
+];
+function dialFmt(d, v){ return v.toFixed(d[4] < 1 ? 2 : 0) + (d[5] ? " " + d[5] : ""); }
+function dialsLoad(){
+  const saved = store.get("tune1", {});
+  for (const d of DIALS) {
+    const v = saved[d[0]];
+    if (typeof v === "number" && isFinite(v)) P[d[0]] = Math.min(d[3], Math.max(d[2], v));
+  }
+}
+function dialsSave(){
+  const o = {}; for (const d of DIALS) o[d[0]] = P[d[0]];
+  store.set("tune1", o);
+}
+function dialsReset(){ for (const d of DIALS) P[d[0]] = DEF[d[0]]; runPure = false; }
+function dialsAreDefault(){
+  for (const d of DIALS) if (P[d[0]] !== DEF[d[0]]) return false;
+  return true;
+}
+/* A round only counts toward the best if it was played on the shipped numbers
+   and nothing was touched while it was running. Putting the dials back does not
+   rescue the round in progress; the next new game starts clean. */
+let runPure = true;
+function scoreCounts(){ return runPure && dialsAreDefault(); }
+dialsLoad();
+
 /* ---------------------------------------------------------------- assets */
 /* arrow.png traced to an outline, in coordinates relative to the ball's centre:
    base at y -21, tip at -64.3. ARROW_DY slides it so the base always clears the
@@ -198,7 +241,7 @@ function rotDir(){
   return document.documentElement.getAttribute("data-rot") === "ccw" ? -1 : 1;
 }
 if (ROT_Q) {
-  const onRot = function(){ measure(); };
+  const onRot = function(){ remeasure(); };
   if (ROT_Q.addEventListener) ROT_Q.addEventListener("change", onRot);
   else if (ROT_Q.addListener) ROT_Q.addListener(onRot);
 }
@@ -223,13 +266,26 @@ function measure(){
   if (cvs.width === bw && cvs.height === bh) return;
   cvs.width = bw; cvs.height = bh;
 }
-window.addEventListener("resize", measure);
-window.addEventListener("orientationchange", measure);
+/* iOS reports the new size before the rotation has finished settling, so a
+   single measurement taken on the event can be of a box that no longer exists a
+   frame later. Measure now, again on the next frame, and once more after the
+   animation is certainly over. ResizeObserver catches a box that changes size
+   but not one that only moves, which is why this exists as well. */
+let settleT = 0;
+function remeasure(){
+  measure();
+  requestAnimationFrame(measure);
+  clearTimeout(settleT);
+  settleT = setTimeout(measure, 320);
+}
+window.addEventListener("resize", remeasure);
+window.addEventListener("orientationchange", remeasure);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", remeasure);
 if (window.ResizeObserver) new ResizeObserver(measure).observe(cvs.parentNode);
 /* H is constant now, so a saved game never needs rescaling on load. */
 
 /* ---------------------------------------------------------------- scenes */
-const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7 };
+const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7, ADV:8 };
 let scene = SC.MENU;
 let tutStep = 0;
 
@@ -258,7 +314,13 @@ MENUS[SC.SETTINGS] = [
   { x:160, y:170, r:58, label:"", sound:true,
     act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } },
   /* dead centre on the settings bubble of the main menu, so the two line up */
-  { x:102, y:272, r:38, fs:14, label:"back", act:function(){ scene = SC.MENU; } }
+  { x:102, y:272, r:38, fs:14, label:"back",     act:function(){ scene = SC.MENU; } },
+  { x:218, y:272, r:38, fs:11, label:"advanced", act:function(){ scene = SC.ADV; } }
+];
+MENUS[SC.ADV] = [
+  { x: 64, y:429, r:30, fs:13, label:"save",              act:function(){ dialsSave(); advSaved = 1.6; } },
+  { x:160, y:429, r:34, fs:12, label:"restore\ndefaults", act:function(){ dialsReset(); dialsSave(); advSaved = 1.6; } },
+  { x:256, y:429, r:30, fs:13, label:"back",              act:function(){ scene = SC.SETTINGS; } }
 ];
 MENUS[SC.TUT] = [
   { x: 40, y:440, r:26, fs:24, label:"\u2039", act:function(){ tutStep = Math.max(0, tutStep-1); } },
@@ -347,7 +409,7 @@ function flushSave(){
   saveDue = false;
   try {
     if (!inPlay || !ball) store.set("game", null);
-    else store.set("game", { s: statics, sc: score, t: turn, p: pity, ty: ball.type });
+    else store.set("game", { s: statics, sc: score, t: turn, p: pity, ty: ball.type, rp: runPure });
   } catch(e){}
 }
 setInterval(flushSave, 1500);
@@ -359,11 +421,13 @@ function loadGame(){
   const k = (typeof g.h === "number" && g.h > 0) ? H / g.h : 1;   // older saves
   statics = g.s.map(function(o){ return { x:o.x, y:o.y*k, r:o.r, hits:o.hits, cool:0, type:"normal" }; });
   score = g.sc || 0; turn = g.t || 1; pity = g.p || 0;
+  runPure = (g.rp !== false);        // saves from before this rule count as clean
   makeBall(g.ty || "normal");
   pts = []; inPlay = true;
   return true;
 }
 function newGame(){
+  runPure = true;
   statics = []; pts = []; score = 0; overFlash = 0; dying = 0;
   aimAngle = 0; aimDir = 1; aimDelay = 0;
   turn = 0; pity = 0;
@@ -381,6 +445,39 @@ function newGame(){
   inPlay = true;
   saveGame();
   scene = SC.GAME;
+}
+
+/* ------------------------------------------------------------- advanced */
+/* Laid out in field units rather than the 320x480 design space the round
+   buttons use, because the rows are this build's own furniture. */
+const ADV_TOP = 150;         // first row's text centre
+const ADV_DY  = 72;          // row pitch
+const ADV_L = 26, ADV_R = 294;
+let advDrag = -1;            // index of the row being dragged, -1 for none
+let advSaved = 0;            // seconds left on the "saved" flash
+function advRowY(i){ return ADV_TOP + i * ADV_DY; }
+function advTrackY(i){ return advRowY(i) + 28; }
+/* The whole band counts as the control, not just the knob. A thumb is wider
+   than nine pixels and the tracks are only three apart from each other. */
+function advHit(p){
+  for (let i = 0; i < DIALS.length; i++) {
+    const y = advTrackY(i);
+    if (p.y > y - 26 && p.y < y + 22) return i;
+  }
+  return -1;
+}
+function advSet(i, x){
+  const d = DIALS[i];
+  let t = (x - ADV_L) / (ADV_R - ADV_L);
+  t = Math.max(0, Math.min(1, t));
+  let v = d[2] + t * (d[3] - d[2]);
+  v = Math.round(v / d[4]) * d[4];
+  v = Math.max(d[2], Math.min(d[3], v));
+  /* Some steps are fractional, so a straight multiply leaves float dust that
+     shows up in the printed value. */
+  P[d[0]] = parseFloat(v.toFixed(4));
+  runPure = false;
+  advSaved = 0;
 }
 
 /* ---------------------------------------------------------------- input */
@@ -414,10 +511,17 @@ function press(p){
     if (ball && ball.state === "aim") { aiming = true; aimDir = 1; aimDelay = P.aimDelay; }
     return;
   }
+  /* A row takes the press before the round buttons get a look, and takes it
+     silently, because a drag is not a button press. */
+  if (scene === SC.ADV && p) {
+    const i = advHit(p);
+    if (i >= 0) { advDrag = i; advSet(i, p.x); return; }
+  }
   /* the sound button makes its own noise, or none, so it is skipped here */
   if (p) { const b = menuHit(p); if (b) { if (!b.sound) play("tap", 0.5); b.act(); } }
 }
 function release(){
+  advDrag = -1;
   if (scene === SC.GAME && aiming && ball && ball.state === "aim") {
     aiming = false;
     const a = aimAngle;
@@ -430,7 +534,12 @@ function release(){
 }
 cvs.addEventListener("pointerdown", function(e){ e.preventDefault(); cvs.focus(); press(canvasPoint(e)); });
 window.addEventListener("pointerup", function(){ release(); });
-window.addEventListener("pointercancel", function(){ aiming = false; });
+window.addEventListener("pointercancel", function(){ aiming = false; advDrag = -1; });
+window.addEventListener("pointermove", function(e){
+  if (advDrag < 0) return;
+  e.preventDefault();
+  advSet(advDrag, canvasPoint(e).x);
+});
 cvs.addEventListener("keydown", function(e){
   if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!aiming) press(null); }
   else if (e.key === "Escape") { if (scene === SC.GAME) scene = SC.MENU; }
@@ -458,7 +567,7 @@ function removeStatic(s, gain, hx, hy){
   score += gain;
   pts.push({ x: (hx === undefined ? s.x : hx), y: (hy === undefined ? s.y : hy), n:gain, t:0 });
   play("pop", 0.55);
-  if (score > high) { high = score; highDue = true; }
+  if (score > high && scoreCounts()) { high = score; highDue = true; }
 }
 function hitStatic(s, type, hx, hy){
   if (s.cool > 0) return;
@@ -624,6 +733,7 @@ function stepWorld(dt){
     if (pts[i].t > 0.9) pts.splice(i, 1);
   }
   if (overFlash > 0) overFlash = Math.max(0, overFlash - dt*1.4);
+  if (advSaved > 0) advSaved -= dt;
   if (scene === SC.GAME) stepBall(dying > 0 ? dt * DEATH_SLOWMO : dt);
 }
 
@@ -811,8 +921,11 @@ function drawOver(){
   label("game\nover", 160, V(86), 36, "#00ff00", "center", 600);
   ring(160, V(196), 62, 5);
   drawNumberMid(score, 160, V(196), 58, "center");
-  const nb = score >= high && score > 0;
+  const nb = score >= high && score > 0 && scoreCounts();
   label(nb ? "new best!" : "best: " + high, 160, V(268), nb ? 22 : 19, "#00ff00", "center", 500);
+  /* Said plainly, so a big score that did not move the best does not read as a
+     bug. */
+  if (!scoreCounts()) label("tuned, not recorded", 160, V(288), 13, "#00a000", "center", 500);
   drawMenu();
 }
 
@@ -884,6 +997,31 @@ function drawHiscore(){
   drawMenu();
 }
 
+function drawAdv(){
+  label("advanced", 160, V(56), 26, "#00ff00", "center", 600);
+  ctx.save();
+  ctx.lineCap = "round";
+  for (let i = 0; i < DIALS.length; i++) {
+    const d = DIALS[i], v = P[d[0]];
+    const ry = advRowY(i), ty = advTrackY(i);
+    label(d[1], ADV_L, ry, 14, "#00a000", "left", 500);
+    label(dialFmt(d, v), ADV_R, ry, 15, "#00ff00", "right", 600);
+    const t = (v - d[2]) / (d[3] - d[2]);
+    const kx = ADV_L + Math.max(0, Math.min(1, t)) * (ADV_R - ADV_L);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#004a00";
+    ctx.beginPath(); ctx.moveTo(ADV_L, ty); ctx.lineTo(ADV_R, ty); ctx.stroke();
+    ctx.strokeStyle = "#007f00";
+    ctx.beginPath(); ctx.moveTo(ADV_L, ty); ctx.lineTo(kx, ty); ctx.stroke();
+    ctx.fillStyle = "#00ff00";
+    ctx.beginPath(); ctx.arc(kx, ty, advDrag === i ? 12 : 9, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+  if (!dialsAreDefault()) label("off defaults, scores are not recorded", 160, 112, 12, "#00a000", "center", 500);
+  if (advSaved > 0) label("saved", 160, 566, 14, "#00ff00", "center", 500);
+  drawMenu();
+}
+
 function drawSettings(){
   label("settings", 160, V(76), 28, "#00ff00", "center", 600);
   label(soundOn ? "sound on" : "sound off", 160, V(225), 15, "#007f00", "center", 500);
@@ -901,6 +1039,7 @@ function render(){
   else if (scene === SC.ABOUT)    drawAbout();
   else if (scene === SC.HISCORE)  drawHiscore();
   else if (scene === SC.SETTINGS) drawSettings();
+  else if (scene === SC.ADV)      drawAdv();
   else if (scene === SC.PLAYMENU) { drawMenu(); wordmark(160, V(356), 46); }
   else                            drawTitle();
   drawDbg();
