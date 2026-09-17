@@ -13,32 +13,13 @@
 <style>
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
-  body{
-    margin:0;
-    background:#000;
-    -webkit-font-smoothing:antialiased;
-  }
-  /* Fills the window. The canvas inside is sized by script to the field's own
-     proportions, which are taken from this box, so it is never stretched. */
-  .screen{
-    width:100vw;
-    height:100vh;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    background:#000;
-  }
+  body{margin:0;background:#000;-webkit-font-smoothing:antialiased}
+  .screen{width:100vw;height:100vh;display:flex;align-items:center;
+          justify-content:center;background:#000}
   @supports (height:1svh){ .screen{ height:100svh; } }
-  .screen canvas{
-    display:block;
-    touch-action:none;
-    cursor:pointer;
-    user-select:none;
-    -webkit-user-select:none;
-    -webkit-touch-callout:none;
-    will-change:transform;
-    transform:translateZ(0);
-  }
+  .screen canvas{display:block;touch-action:none;cursor:pointer;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+    will-change:transform;transform:translateZ(0)}
   .screen canvas:focus{outline:none}
 </style>
 </head>
@@ -53,13 +34,13 @@ const A={"arrow": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAA4CAYAAAD
 "use strict";
 
 /* ---------------------------------------------------------------- config */
-/* The field is 320 wide and as tall as the window allows. 693 is the height a
-   13 mini gives with no browser chrome, which is what the calibration was tuned
-   against; a shorter window simply yields a shorter playfield. The furniture at
-   the top and bottom keeps fixed pixel sizes, so only the play area changes. */
-const W = 320;
-const H_REF = 693, H_MIN = 520, H_MAX = 940;
-let H = H_REF;
+/* 320 x 693 is 0.4618, an iPhone 13 mini's screen scaled to a 320-wide field,
+   and every current iPhone is within half a percent of it. The field never
+   changes shape; it is scaled to whatever the window offers and centred. In
+   Safari the browser chrome takes about 183pt of height, so it fills the height
+   and leaves bars at the sides. Add to Home Screen removes the chrome and it
+   fills the screen exactly. */
+const W = 320, H = 693;
 function V(n){ return n * (H / 480); }
 const FOOT = 45;                 // launch point, measured up from the bottom
 const ARROW_DROP = 70;           // launch point below the dashed line
@@ -67,7 +48,15 @@ function layout(){
   P.launch   = H - FOOT;
   P.baseline = P.launch - ARROW_DROP;
 }
-const TOP = 48;
+const TOP = 48;                  // where the rule is drawn
+const TOP_LINE = 2;              // its stroke width
+const SIDE = 1;                  // side inset, same idea as the rule's underside
+/* A ball's ring is stroked so its outer edge lands exactly on its radius. With
+   the walls at 0 and 320 that edge sat on the canvas boundary and the outermost
+   antialiased pixel was clipped, worse on the right, where x=320 maps one past
+   the last pixel column. Insetting by 1 keeps the whole ring on screen. */
+const FIELD_TOP = TOP + TOP_LINE/2;
+const FIELD_L = SIDE, FIELD_R = W - SIDE;
 const RAZOR_SCALE = 1.1;         // the blade is 20% wider than a plain ball
 const SHOT_R = 14;               // fixed; no longer a dial
 const SCORE_PX = 42;             // foot score size
@@ -82,6 +71,8 @@ const P = {
   friction:  0.6,   // fraction of speed kept per second
   bounce:    0.92,   // speed kept per wall or ball impact
   stopAt:    16,     // below this the ball is considered at rest, px/s
+  gripAt:    90,     // speed under which friction starts to bite harder, px/s
+  grip:      0.35,   // friction multiplier at a standstill; 1.00 disables it
   growTime:  0.50,   // seconds to reach final size once at rest
   sweep:     100,    // arrow rotation, degrees per second
   aimDelay:  0.03,   // dead time after a press before the arrow moves
@@ -95,10 +86,13 @@ const store = {
 };
 
 /* ---------------------------------------------------------------- assets */
-const IMG = {};
-["arrow"].forEach(function(k){
-  const i = new Image(); i.src = A[k]; IMG[k] = i;
-});
+/* arrow.png traced to an outline, in coordinates relative to the ball's centre:
+   base at y -21, tip at -64.3. ARROW_DY slides it so the base always clears the
+   ball by ARROW_GAP whatever SHOT_R is. Drawing it as a vector also removes the
+   last raster; a small high-contrast sprite crawls at its edges as it turns,
+   which reads as stutter even at a clean frame rate. */
+const ARROW_PATH = new Path2D("M-5.6 -35.2C-7.5 -49.2 -7.6 -49.5 -10.1 -50.0C-12.7 -50.5 -12.7 -50.6 -6.4 -57.4L-0.1 -64.3L6.3 -57.4C12.7 -50.6 12.7 -50.5 10.0 -50.2L7.3 -49.9L5.5 -35.4L3.7 -21.0L0.0 -21.0L-3.6 -21.0L-5.6 -35.2ZM3.4 -37.6C4.4 -45.2 5.7 -51.8 6.2 -52.1C6.8 -52.5 5.7 -54.4 3.6 -56.6L-0.0 -60.5L-3.6 -56.6C-5.6 -54.5 -6.8 -52.5 -6.2 -52.1C-5.7 -51.8 -4.5 -45.7 -3.6 -38.5C-1.6 -23.5 -1.4 -22.7 0.3 -23.2C1.0 -23.5 2.2 -28.8 3.4 -37.6Z");
+const ARROW_BASE = 21;
 /* Score numerals are set in Archivo Black. NUMCAP is its cap height as a
    fraction of the font size, used to centre digits inside the score rings. */
 const ARCHIVO = '"Archivo",Helvetica,Arial,sans-serif';
@@ -109,8 +103,12 @@ let actx = null; const BUF = {};
 function audioInit(){
   if (actx) return;
   try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ return; }
-  /* klik4 is the tap (menus, a ball surviving a hit); klik1 is the pop
-     (a ball leaving the field); gameover1 ends the round. Nothing on release. */
+  setTimeout(decodeClips, 0);   // base64 -> ArrayBuffer, not inside the press
+}
+/* klik4 is the tap (menus, a ball surviving a hit); klik1 is the pop
+   (a ball leaving the field); gameover1 ends the round. Nothing on release. */
+function decodeClips(){
+  if (!actx) return;
   [["pop",A.snd_shoot],["tap",A.snd_hit],["over",A.snd_over]].forEach(function(p){
     const bin = atob(p[1].split(",")[1]);
     const arr = new Uint8Array(bin.length);
@@ -140,21 +138,25 @@ let q = 1;
 function measure(){
   const box = cvs.parentNode.getBoundingClientRect();
   if (!box.width || !box.height) return;
-  /* Take the window's own proportions as the field's, within limits, then fit a
-     W x H box inside the container so nothing is ever stretched. */
-  H = Math.max(H_MIN, Math.min(H_MAX, Math.round(W * box.height / box.width)));
-  layout();
+  /* Fit the fixed field into whatever the window offers, then pin the buffer to
+     whole device pixels and derive the CSS size back from it. Sizing the other
+     way round leaves the canvas on a half device pixel and every crisp edge
+     shimmers as things move across it. */
+  const dpr = window.devicePixelRatio || 1;
   const scale = Math.min(box.width / W, box.height / H);
-  cvs.style.width  = Math.round(W * scale) + "px";
-  cvs.style.height = Math.round(H * scale) + "px";
-  const want = Math.min(2, Math.max(1, (window.devicePixelRatio||1) * scale));
-  const wpx = Math.round(W * want), hpx = Math.round(H * want);
-  if (cvs.width === wpx && cvs.height === hpx) return;
-  q = want; cvs.width = wpx; cvs.height = hpx;
+  const bw = Math.max(1, Math.round(W * scale * dpr));
+  const qq = bw / W;
+  const bh = Math.round(H * qq);
+  cvs.style.width  = (bw / dpr) + "px";
+  cvs.style.height = (bh / dpr) + "px";
+  q = qq;
+  if (cvs.width === bw && cvs.height === bh) return;
+  cvs.width = bw; cvs.height = bh;
 }
 window.addEventListener("resize", measure);
 window.addEventListener("orientationchange", measure);
 if (window.ResizeObserver) new ResizeObserver(measure).observe(cvs.parentNode);
+/* H is constant now, so a saved game never needs rescaling on load. */
 
 /* ---------------------------------------------------------------- scenes */
 const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7 };
@@ -179,7 +181,7 @@ MENUS[SC.PLAYMENU] = [
 ];
 MENUS[SC.ABOUT]   = [ { x: 40, y:440, r:26, fs:12, label:"menu", act:function(){ scene = SC.MENU; } } ];
 MENUS[SC.HISCORE] = [
-  { x:160, y:300, r:40, fs:16, label:"reset", act:function(){ high = 0; store.set("high", 0); } },
+  { x:160, y:300, r:40, fs:16, label:"reset", act:function(){ high = 0; highDue = true; } },
   { x:250, y:378, r:32, fs:14, label:"back",  act:function(){ scene = SC.MENU; } }
 ];
 MENUS[SC.SETTINGS] = [
@@ -223,12 +225,15 @@ function lerp(a, b, t){ return a + (b - a) * t; }
 let inPlay = false;
 let overFlash = 0;
 
-/* The arrow sprite is 30x56 with its art running from 11 to 54px above the
-   pivot. We push it out so its tail clears the ball by ARROW_GAP, which puts
-   the tip ARROW_LEN above the ball's centre. At the default launch of 648 and
-   a baseline of 578 that leaves 6px of air under the dashed line. */
-const ARROW_SHIFT = (SHOT_R + ARROW_GAP) - 11;
-const ARROW_LEN   = 54 + ARROW_SHIFT;
+const ARROW_DY  = ARROW_BASE - (SHOT_R + ARROW_GAP);
+const ARROW_LEN = 64.3 - ARROW_DY;   // tip height above the ball's centre
+function drawArrow(){
+  ctx.save();
+  ctx.translate(0, ARROW_DY);
+  ctx.fillStyle = "#00ff00";
+  ctx.fill(ARROW_PATH);
+  ctx.restore();
+}
 function launchY(){ return Math.min(H - SHOT_R - 8, P.launch); }
 /* Resume is only offered for a game that is genuinely mid-play with a ball
    waiting. A finished round leaves its statics behind but clears inPlay. */
@@ -261,14 +266,27 @@ function makeBall(type){
 function readyBall(){ dealType(); makeBall(nextType); }
 /* GameDirector in the original had saveGame and isCurrentGameResumable, so a
    round survived leaving the app. This does the same through localStorage. */
-function saveGame(){
-  if (!inPlay || !ball) { store.set("game", null); return; }
-  store.set("game", { s: statics, sc: score, t: turn, p: pity, ty: ball.type, h: H });
+/* localStorage is synchronous and can block for tens of milliseconds. These
+   used to fire inside the step that landed a ball or took a point, putting a
+   stall exactly where the next shot begins. Queued out of the frame instead. */
+let saveDue = false, highDue = false;
+function saveGame(){ saveDue = true; }
+function flushSave(){
+  if (highDue) { highDue = false; try { store.set("high", high); } catch(e){} }
+  if (!saveDue) return;
+  saveDue = false;
+  try {
+    if (!inPlay || !ball) store.set("game", null);
+    else store.set("game", { s: statics, sc: score, t: turn, p: pity, ty: ball.type });
+  } catch(e){}
 }
+setInterval(flushSave, 1500);
+window.addEventListener("pagehide", flushSave);
+document.addEventListener("visibilitychange", function(){ if (document.hidden) flushSave(); });
 function loadGame(){
   const g = store.get("game", null);
   if (!g || !g.s || !Array.isArray(g.s)) return false;
-  const k = (typeof g.h === "number" && g.h > 0) ? H / g.h : 1;
+  const k = (typeof g.h === "number" && g.h > 0) ? H / g.h : 1;   // older saves
   statics = g.s.map(function(o){ return { x:o.x, y:o.y*k, r:o.r, hits:o.hits, cool:0, type:"normal" }; });
   score = g.sc || 0; turn = g.t || 1; pity = g.p || 0;
   makeBall(g.ty || "normal");
@@ -283,8 +301,8 @@ function newGame(){
   let guard = 0;
   while (statics.length < n && guard++ < 600) {
     const r = 22 + Math.random()*16;
-    const x = r + 6 + Math.random()*(W - 2*r - 12);
-    const y = TOP + 24 + Math.random()*(P.baseline - TOP - 130);
+    const x = FIELD_L + r + 6 + Math.random()*(FIELD_R - FIELD_L - 2*r - 12);
+    const y = FIELD_TOP + 24 + Math.random()*(P.baseline - FIELD_TOP - 130);
     let ok = true;
     for (const s of statics) if (Math.hypot(x-s.x, y-s.y) < s.r + r + 6) { ok = false; break; }
     if (ok) statics.push({ x:x, y:y, r:r, hits:2, cool:0, type:"normal" });
@@ -343,9 +361,9 @@ function mult(type){ return type === "double" ? 2 : type === "triple" ? 3 : 1; }
 function spinKick(nx, ny){
   if (ball.type !== "double" && ball.type !== "triple") return;
   const vt = ball.vx * (-ny) + ball.vy * nx;
-  ball.spinVel += vt / Math.max(8, ball.r) * 0.55;
-  if (ball.spinVel >  16) ball.spinVel =  16;
-  if (ball.spinVel < -16) ball.spinVel = -16;
+  ball.spinVel += vt / Math.max(8, ball.r) * 0.715;   // 0.55 + 30%
+  if (ball.spinVel >  21) ball.spinVel =  21;
+  if (ball.spinVel < -21) ball.spinVel = -21;
 }
 
 function removeStatic(s, gain){
@@ -354,7 +372,7 @@ function removeStatic(s, gain){
   score += gain;
   pts.push({ x:s.x, y:s.y, n:gain, t:0 });
   play("pop", 0.55);
-  if (score > high) { high = score; store.set("high", high); }
+  if (score > high) { high = score; highDue = true; }
 }
 function hitStatic(s, type){
   if (s.cool > 0) return;
@@ -366,6 +384,7 @@ function hitStatic(s, type){
 }
 /* Death is not instant: the sound lands and the ball is left to travel for a
    moment so you see what killed you, then the screen comes up. */
+const REST_HOLD = 1/3;       // pause once the ball stops, before grow or vanish
 const DEATH_HOLD = 0.35;
 const DEATH_SLOWMO = 0.30;   // the last moment plays slowly enough to read
 function gameOver(){
@@ -381,9 +400,18 @@ function endRound(){
 }
 function land(){
   if (!armed) { gameOver(); return; }
-  let t = Math.min(ball.x, W - ball.x, ball.y - TOP, P.baseline - ball.y);
+  /* Put the ball back inside first: wedged between statics it can finish a
+     substep slightly out of bounds, which made the clearance come out negative
+     and the SHOT_R floor below then grew it straight through the wall. */
+  ball.x = Math.min(FIELD_R - ball.r, Math.max(FIELD_L + ball.r, ball.x));
+  ball.y = Math.max(FIELD_TOP + ball.r, ball.y);
+  ball.px = ball.x; ball.py = ball.y;
+  const wall = Math.min(ball.x - FIELD_L, FIELD_R - ball.x,
+                        ball.y - FIELD_TOP, P.baseline - ball.y);
+  let t = wall;
   for (const s of statics) t = Math.min(t, Math.hypot(ball.x-s.x, ball.y-s.y) - s.r);
   t = Math.max(SHOT_R, t);
+  t = Math.max(2, Math.min(t, wall));   // the floor may not breach a boundary
   ball.type = "normal";
   ball.r0 = ball.r; ball.target = t; ball.gt = 0;
   ball.state = "grow";
@@ -401,6 +429,16 @@ function stepBall(dt){
       aimAngle += aimDir * P.sweep * Math.PI/180 * dt;
       if (aimAngle >  lim) { aimAngle =  lim; aimDir = -1; }
       if (aimAngle < -lim) { aimAngle = -lim; aimDir =  1; }
+    }
+    return;
+  }
+  /* A ball that has come to rest waits a beat before it does anything, so the
+     stop reads as a stop rather than running straight into the next animation. */
+  if (ball.state === "rest") {
+    ball.gt += dt;
+    if (ball.gt >= REST_HOLD) {
+      if (ball.type === "razor") { ball.r0 = ball.r; ball.gt = 0; ball.state = "spend"; }
+      else land();
     }
     return;
   }
@@ -434,14 +472,20 @@ function stepBall(dt){
   const sub = Math.max(1, Math.min(8, Math.ceil(sp * dt / 3)));
   const h = dt / sub;
   for (let k = 0; k < sub; k++) {
-    const f = Math.pow(P.friction, h);
+    /* Plain exponential decay takes the same fraction per second whatever the
+       speed, which is why the tail of the roll feels slippery. Below gripAt the
+       retained fraction is scaled down on a ramp that is 0 at the threshold and
+       1 at a standstill, so the bite arrives gradually and there is no step at
+       the crossing point. grip = 1 leaves the old behaviour untouched. */
+    const v = Math.hypot(ball.vx, ball.vy);
+    let keep = P.friction;
+    if (P.gripAt > 0 && v < P.gripAt) {
+      keep = P.friction * Math.pow(P.grip, 1 - v / P.gripAt);
+    }
+    const f = Math.pow(keep, h);
     ball.vx *= f; ball.vy *= f;
     ball.x += ball.vx * h;
     ball.y += ball.vy * h;
-
-    if (ball.x - ball.r < 0) { ball.x = ball.r; spinKick(1, 0); ball.vx = -ball.vx * P.bounce; }
-    if (ball.x + ball.r > W) { ball.x = W - ball.r; spinKick(-1, 0); ball.vx = -ball.vx * P.bounce; }
-    if (ball.y - ball.r < TOP) { ball.y = TOP + ball.r; spinKick(0, 1); ball.vy = -ball.vy * P.bounce; }
 
     for (let i = statics.length - 1; i >= 0; i--) {
       const s = statics[i];
@@ -460,6 +504,12 @@ function stepBall(dt){
       if (scoring) hitStatic(s, ball.type);
     }
 
+    /* Walls last. Pushing clear of a static can eject the ball past a wall, and
+       running this first left it outside until the following substep. */
+    if (ball.x - ball.r < FIELD_L) { ball.x = FIELD_L + ball.r; spinKick(1, 0); ball.vx = -ball.vx * P.bounce; }
+    if (ball.x + ball.r > FIELD_R) { ball.x = FIELD_R - ball.r; spinKick(-1, 0); ball.vx = -ball.vx * P.bounce; }
+    if (ball.y - ball.r < FIELD_TOP) { ball.y = FIELD_TOP + ball.r; spinKick(0, 1); ball.vy = -ball.vy * P.bounce; }
+
     if (!armed && ball.y + ball.r < P.baseline) armed = true;
     if (dying <= 0 && ball.type !== "razor") {
       /* Turning back downward without ever having cleared the line ends it on
@@ -475,10 +525,8 @@ function stepBall(dt){
   }
 
   if (dying <= 0 && Math.hypot(ball.vx, ball.vy) < P.stopAt) {
-    if (ball.type === "razor") {
-      play("tap", 0.35);
-      ball.r0 = ball.r; ball.gt = 0; ball.state = "spend";
-    } else land();
+    ball.vx = 0; ball.vy = 0;
+    ball.gt = 0; ball.state = "rest";
   }
 }
 
@@ -648,7 +696,7 @@ function drawGame(){
       ctx.translate(bx, by);
       ctx.rotate(lerp(prevAim, aimAngle, alphaT));
       ctx.globalAlpha = aiming ? 1 : 0.45;
-      if (IMG.arrow.complete && IMG.arrow.naturalWidth) ctx.drawImage(IMG.arrow, -15, -56 - ARROW_SHIFT, 30, 56);
+      drawArrow();
       ctx.restore();
     }
   }
@@ -702,9 +750,7 @@ function drawTut(){
        illustration and the real thing sit at identical heights. */
     baseline();
     const ly = launchY();
-    ctx.save(); ctx.translate(160, ly); ctx.rotate(-0.35);
-    if (IMG.arrow.complete) ctx.drawImage(IMG.arrow, -15, -56 - ARROW_SHIFT, 30, 56);
-    ctx.restore();
+    ctx.save(); ctx.translate(160, ly); ctx.rotate(-0.35); drawArrow(); ctx.restore();
     drawBall(160, ly, SHOT_R, "normal", 2);
   } else if (tutStep === 2) {
     drawBall(90, V(320), 13, "normal", 2);
@@ -771,19 +817,53 @@ function render(){
   else if (scene === SC.SETTINGS) drawSettings();
   else if (scene === SC.PLAYMENU) { drawMenu(); wordmark(160, V(356), 46); }
   else                            drawTitle();
+  drawDbg();
 }
 
 /* Fixed timestep. A 13 mini drives the display at 60Hz and a 17 Pro at 120Hz;
    stepping a constant 1/120s makes both simulate exactly the same game. */
+const DBG = /[?&]debug/.test(location.search);
+const dbg = { t:[], steps:[0,0,0,0,0,0], line:"", line2:"", worst:0, hitches:0 };
+function dbgSample(ms, n){
+  if (!DBG) return;
+  dbg.t.push(ms); dbg.steps[Math.min(5, n)]++;
+  if (ms > dbg.worst) dbg.worst = ms;
+  if (dbg.t.length < 60) return;
+  const a = dbg.t.slice().sort(function(x,y){ return x-y; });
+  const pc = function(k){ return a[Math.floor(a.length*k)]; };
+  const over = dbg.t.filter(function(x){ return x > 20; }).length;
+  if (dbg.worst > 40) dbg.hitches++;
+  dbg.line = "fps " + Math.round(1000/pc(0.5)) + "  p50 " + pc(0.5).toFixed(1) +
+             "  p95 " + pc(0.95).toFixed(1) + "  max " + dbg.worst.toFixed(0) +
+             "  >20ms " + Math.round(100*over/dbg.t.length) + "%  hitch " + dbg.hitches;
+  const r = cvs.getBoundingClientRect(), dp = window.devicePixelRatio || 1;
+  const exact = Math.abs(r.width*dp - cvs.width) < 0.6 && Math.abs(r.height*dp - cvs.height) < 0.6;
+  dbg.line2 = "steps " + dbg.steps.slice(0,5).join("/") + "  dpr " + dp +
+              "  buf " + cvs.width + "x" + cvs.height + (exact ? "  1:1" : "  RESAMPLED");
+  dbg.t = []; dbg.steps = [0,0,0,0,0,0]; dbg.worst = 0;
+}
+function drawDbg(){
+  if (!DBG || !dbg.line) return;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,.75)"; ctx.fillRect(0, 0, W, 34);
+  ctx.font = "500 9px monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillStyle = "#00ff00";
+  ctx.fillText(dbg.line, 5, 6); ctx.fillText(dbg.line2, 5, 19);
+  ctx.restore();
+}
+
 const STEP = 1/120;
 let last = 0, acc = 0;
 function frame(ts){
   let dt = last ? (ts - last)/1000 : STEP;
   last = ts;
-  if (dt > 0.25) dt = 0.25;
+  /* Cap catch-up at three frames. If something stalls the main thread the
+     simulation loses that time rather than teleporting through it. */
+  if (dt > 0.05) dt = 0.05;
   acc += dt;
-  let guard = 0;
-  while (acc >= STEP && guard++ < 60) { stepWorld(STEP); acc -= STEP; }
+  let guard = 0, nsteps = 0;
+  while (acc >= STEP && guard++ < 60) { stepWorld(STEP); acc -= STEP; nsteps++; }
+  dbgSample(dt * 1000, nsteps);
   /* Whatever is left in the accumulator is how far past the last physics step
      this frame sits. Drawing at that fraction between the previous and current
      state is what keeps motion smooth when the display's cadence is not an
@@ -796,6 +876,10 @@ function frame(ts){
 /* ---------------------------------------------------------------- boot */
 function start(saved){
   if (saved && typeof saved.high === "number" && saved.high > high) high = saved.high;
+  /* Measure first. This used to restore the saved game against the default
+     height of 693 and only then discover the real one, which is why a resumed
+     ball and arrow turned up in the wrong place. */
+  measure();
   loadGame();
   /* A face used only by canvas fillText is not always fetched, because nothing
      in the DOM references it. Ask for it explicitly. */
@@ -805,7 +889,6 @@ function start(saved){
     document.fonts.load('400 13px "Archivo"');
     document.fonts.load('600 40px "Fredoka"');
   }
-  measure();
   requestAnimationFrame(frame);
 }
 if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
