@@ -51,6 +51,10 @@ function layout(){
 const TOP = 48;                  // where the rule is drawn
 const TOP_LINE = 2;              // its stroke width
 const SIDE = 1;                  // side inset, same idea as the rule's underside
+const POP_PULL = 0.65;           /* score marker sits this far out along the
+                                    impact normal, 1 = the surface, 0 = the
+                                    centre. Kept off the rim, where the shot
+                                    ball and the neighbours crowd it. */
 /* A ball's ring is stroked so its outer edge lands exactly on its radius. With
    the walls at 0 and 320 that edge sat on the canvas boundary and the outermost
    antialiased pixel was clipped, worse on the right, where x=320 maps one past
@@ -366,20 +370,22 @@ function spinKick(nx, ny){
   if (ball.spinVel < -21) ball.spinVel = -21;
 }
 
-function removeStatic(s, gain){
+/* hx,hy is a point along the impact normal, POP_PULL of the way out from the
+   removed ball's centre toward where the shot touched it. */
+function removeStatic(s, gain, hx, hy){
   const i = statics.indexOf(s); if (i < 0) return;
   statics.splice(i, 1);
   score += gain;
-  pts.push({ x:s.x, y:s.y, n:gain, t:0 });
+  pts.push({ x: (hx === undefined ? s.x : hx), y: (hy === undefined ? s.y : hy), n:gain, t:0 });
   play("pop", 0.55);
   if (score > high) { high = score; highDue = true; }
 }
-function hitStatic(s, type){
+function hitStatic(s, type, hx, hy){
   if (s.cool > 0) return;
   s.cool = 0.18;
-  if (type === "razor") { removeStatic(s, 1); return; }
+  if (type === "razor") { removeStatic(s, 1, hx, hy); return; }
   s.hits -= 1;
-  if (s.hits <= 0) removeStatic(s, mult(type));
+  if (s.hits <= 0) removeStatic(s, mult(type), hx, hy);
   else play("tap", 0.5);
 }
 /* Death is not instant: the sound lands and the ball is left to travel for a
@@ -492,8 +498,8 @@ function stepBall(dt){
       const dx = ball.x - s.x, dy = ball.y - s.y;
       const d = Math.hypot(dx, dy);
       if (d >= s.r + ball.r) continue;
-      if (ball.type === "razor") { hitStatic(s, "razor"); continue; }
       const nx = dx/(d||1), ny = dy/(d||1);
+      if (ball.type === "razor") { hitStatic(s, "razor", s.x + nx*s.r*POP_PULL, s.y + ny*s.r*POP_PULL); continue; }
       ball.x = s.x + nx*(s.r + ball.r);
       ball.y = s.y + ny*(s.r + ball.r);
       spinKick(nx, ny);
@@ -501,7 +507,7 @@ function stepBall(dt){
       const dot = ball.vx*nx + ball.vy*ny;
       ball.vx = (ball.vx - 2*dot*nx) * P.bounce;
       ball.vy = (ball.vy - 2*dot*ny) * P.bounce;
-      if (scoring) hitStatic(s, ball.type);
+      if (scoring) hitStatic(s, ball.type, s.x + nx*s.r*POP_PULL, s.y + ny*s.r*POP_PULL);
     }
 
     /* Walls last. Pushing clear of a static can eject the ball past a wall, and
@@ -704,7 +710,7 @@ function drawGame(){
   for (const p of pts) {
     ctx.save();
     ctx.globalAlpha = Math.max(0, 1 - p.t/0.9);
-    label("+" + p.n, p.x, p.y, 20, "#00ff00", "center", 600);
+    label("+" + p.n, Math.min(W - 16, Math.max(16, p.x)), p.y, 20, "#00ff00", "center", 600);
     ctx.restore();
   }
 
