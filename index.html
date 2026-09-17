@@ -8,6 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Frict">
 <meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Frict</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Archivo:wght@100..900&display=swap">
 <style>
@@ -21,6 +23,22 @@
     user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
     will-change:transform;transform:translateZ(0)}
   .screen canvas:focus{outline:none}
+  /* Portrait lock. Android obeys the manifest and never reaches this. iOS gives
+     a web page no orientation lock at all, so a phone held sideways gets the
+     whole screen turned back a quarter turn instead. The max-height guard keeps
+     a desktop browser in landscape out of it. */
+  @media (orientation:landscape) and (max-height:600px){
+    .screen{position:fixed;top:50%;left:50%;width:100vh;height:100vw;
+            transform:translate(-50%,-50%) rotate(90deg);transform-origin:center}
+    /* Turning the other way has to be answered the other way, or the game reads
+       upside down in one of the two landscapes. */
+    html[data-rot="ccw"] .screen{transform:translate(-50%,-50%) rotate(-90deg)}
+  }
+  @supports (height:1svh){
+    @media (orientation:landscape) and (max-height:600px){
+      .screen{width:100svh;height:100svw}
+    }
+  }
 </style>
 </head>
 <body>
@@ -28,6 +46,26 @@
   <canvas id="game" width="320" height="693" tabindex="0"
           aria-label="Frict. Press and hold to aim, release to shoot."></canvas>
 </div>
+<script>
+window.PORTRAIT_LOCK = true;
+(function(){
+  /* screen.orientation.angle counts counter-clockwise from the device's natural
+     orientation, so 90 means the phone was turned counter-clockwise and the
+     page has to turn back the same way. */
+  var el = document.documentElement;
+  function set(){
+    var a = 0, so = window.screen && screen.orientation;
+    if (so && typeof so.angle === "number") a = so.angle;
+    else if (typeof window.orientation === "number") a = ((window.orientation % 360) + 360) % 360;
+    el.setAttribute("data-rot", a === 90 ? "ccw" : a === 270 ? "cw" : "none");
+  }
+  set();
+  var so = window.screen && screen.orientation;
+  if (so && so.addEventListener) so.addEventListener("change", set);
+  window.addEventListener("orientationchange", set);
+  window.addEventListener("resize", set);
+})();
+</script>
 <script>
 const A={"arrow": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAA4CAYAAADqxUiJAAAB9ElEQVR4nO2X0XGDMAyGf3p9jzcoG8QbwAYdId2g3aAj9DpBuknpBHEnCJkg7gTuA2BsEEYmJk/8Pt/pbKEP6SyTAJu4MjjB4Hhv6BHGjjvBfWg3Pu4HvbazH4e1oAcPum/nqnAKinYWo7IngrtQM4B28zCCF7dC94NcxlAa3tTlBuiVBU0GH0JfGdBuvi+FG+w86DEC2k2/088w2A0xDyMoUAEQAAAF4AuIKtgBQA1A25UcQEXB3UxPo/NpYPAdke2ZjGDa2AS8CT89uODwOHW4zGYLSKIOL+1siv83WeBGT2jK3OgNGT5nnpiQwbN914KRbeFlF7xEHkKbcI+IYLyonHg2GpzhZyIoLeE9+7sc7Cpn+Ehr1XOuHHDFBou0YM0Gl2nBig3ulQSsrRW6Ov3mUSnAfRAR8PL3dApwbS0Z8PL31O3gDBdri4Cfu5fNXq7sPq4BuKd2LGmtihMwDhxSzowUCVYAwhn34ColWFuL+h3ht5kmPBaDlbUksSsmfBOAtbVyYtd/GU14LAS7n0cKLDzf4OcwDuyKApfWqrlhYsDVJLjXKmANgD5cpbXUGuAmqBis+u2l1wDX1nL7Vno+al2wcFaF56PXBZfOqnRst+1m9MjGZrjAEOBy7JpeU3/qur92EYq9QPTCvU2bNm3atFz/L8x48geuIN0AAAAASUVORK5CYII=", "snd_shoot": "data:audio/mpeg;base64,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AANIAAAAAKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv/zYsRvAAADSAAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqr/82DEcAAAA0gAAAAAqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=", "snd_hit": "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//NwwAAAAAAAAAAAAEluZm8AAAAPAAAABwAABP8AQ0NDQ0NDQ0NDQ0NDQ0NjY2NjY2NjY2NjY2NjY4KCgoKCgoKCgoKCgoKCoaGhoaGhoaGhoaGhoaGhwcHBwcHBwcHBwcHBwcHg4ODg4ODg4ODg4ODg4P//////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQCpQAAAAAAAAT/j6f7lwAAAAAAAAAAAAAAAAD/82DEABJgMpQ/QxgAKknJbs7nEREEAYG4fiAHwfB8HyhzghBD8HwfB/8EHfwfP/wQBAEDnwfPn/wQBAEDnwfB8H/wQBAMfg+D4Ph/4IAgCAYT9YPv+YUAANQk5xt0OFxKgUgIZILM7ZWBRKYWXUNq3NPDA2c4Zh10kqbO8oBHzMAUQlF8goxwsJAybFwB+ob+QEZkc2mgCqwNRAD/82LERTGC+oG/nJgB0pcSHSMcOAv0BcQHCwXYLjFzC5jM0IdRZJhTwbvC6kbg6TEul3MTI8fRu6hZolQogy5NGkvF5bGSJdLqTataLFwzDLBFTc6ZIGqRiZF4vLYyMS6XVV//n0CGEgRcn0TeTBdOn1qSS1LRR1qSS//+Ro0hOhLoMdWjCY/wQW1QVekFD/lpy27jclXi5i6nuQFO//NixA8jm4K0/9pAAzjo4yEE5A0BLlEdRGISeknfh6DMcOynZJyMIraU1UITB0H1/4s9OgSiAGxI33//DNYsIsXUHLV007sMoQjUZUOcwedKtljjpZ9v/3JKG5JA+xWFS6/9lT5rVpr/r5Xrn1q6X7WLVWJvUSC444krq1q9Y7lW7i/nXEoexDNOxMLqZBZgYAJgKF5hYFaCAxUCE//zYsQQIlmuYALrzJoViFBQYmbA7Hp3FnCctGAIIgoMwKAzvhDjiTzKiDfP86VDZNqQ4SQoYzwc6u1vWHanybxEot3n235ILErjJnyxLSdElkbd9iX5UEl8p0eDJeEcMzt7KciaVLSzmnX+ZlRcxZUpUTS4ECgQhOwVcyVpSoqGYFJOSl39dQtczhS5twMMrPJABX5IGmUNJyfUPuz/82DEFiJRLmQM2waVacPkREgNbYtB4SyuVikWyEfLzRLxtEjaq+kh76XZWKl0u3Y2KoYIeQWj5I5qcrWBf4P+9+6J2ZB0FIfHtnbTRQt7LwP2iwz2aVwPQY+qdnqcyRMD1KkZG5Kp0dW0Oi5xYWBzo4NUySpUxUjo///tmf//9VVSvVXybhhMZWdClxkTVDhUSYZYMCtTLwrpnav/82LEGx2h/kw0wYq4YBKtEsAqSotHcoFUSZ4rs6J2PLenI85cs881mvKfNmqXL6iowDOoqhTFINFU9blR20M5UMYtSotxF0wV1gqWF0nWhUKBUqAhcyMKkfnes7Oq+RqPctts4wid2IUhVzNhZ426grRmLlxQSYVQXfTMbdtF/LFaU8YDCA4Sdrd6Lx2JLBYmcJHQFAKH7AxmaMdL//NixDQcKQHkCsGGrGrBgcAoVcSCrgEBlCUOgq3H9/jAmAkAUVJHisKBV39DHAVqgKImwk9aJ46FB5GEvqArPLQqM89WIiRE71pMQU1FMy4xMDCqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg==", "snd_over": "data:audio/mpeg;base64,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I1LAHlYOHBJAu6dLBlmTwKNbKiWtOSwGZep9OuzKUbR5CgBI5nSbdNAjAzhoXDgFNRdBOzVk1Z//8SKtiKOW6l2XxiBT///7/1VUECQ4GAAhzh0IVEPpf//8GYhVuQ6JnQhyEU7Sff/+7JkQOKYYxhBQE4gQZaoAkYBK3+pVdRBJ6PqOxiI6Ria0wsGqtFAx+B0Eikri0v/zYsSbHpNSuL7CBQ0o5evl3URipYWC4LVqOheACGivljybMF0+VP/+TpEoeCEK60qSY7VBXGA3///W3QzGHYOQKEAAJ3FCAxkwDaTn/JtFTalngqPKpb/2no40DY8s9rf/5wRgcH4AQpOf6qevVGhaMZRUaE/wtKPOvLuKPyaGm2eJi2UzPS9SphyaCZbivpCnSlAAlfK0HWNbZTL/82DEsB5x6rRWwgUMr8Kk1AiT6qYXs3M7iX+Rv7Vq2W5lHOIiowDjRpZUd1ZGUgj//+jmYiHajUczynQRGjTV///q1K7KxSkeX///sj9CFJicUVUKUAFz81Eo2hyVvkwVM80xLKVkPzKnULl7rYtZeOKOEvmWK3tEBXofcSrOtOvvpc//lKVpcyDqhKO/JD1h4PONqV3xNRhyCzv/82LExR8b1rAewcsNDv87dHqXXu5y31KUx2UqSOU16tX//9aGpTeuyKGHmRn+ysfIvPMT+llJJIpUHSxlTEFNRTMuMTAwVVVVTwkycnqMZjmMpIowIcWGqmcm1OrLMrVy6Vza2GkdTGT0Qov5LXhzKIDAJhHP3nK8kUUWIlYRbQPCwiAIt9Spl0FlAUW+kvMLFdywV4iDoiAoaDoL//NixNgd8qqgNsIFKB4NA1/6cseWGgaEo8FQ1/4meoOgqJRE/1PsiVwldiVxVSmOwFGTVBxi3KBSp1aVBmyLeSJSOT3TUFhFkQuggEX7RFS+YWvRJItiITFQSC6TKYS0XQedprhQZF4rTFqJCTIq3EwpIg+MFG2SqpK3sYlByWGilBpktCWVFUiul2TlRTBMxWVFdiYrb5WJimisoP/zYsTkHSF+hBZ5iwTSorv9uUktVMVlJiSUwTMVVJXY1ZFSqSWKLFdkpSWu+VVJJaliqImiJLFVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/82DE/yZg5gQCwZMhVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU="};
 (function(){
@@ -72,11 +110,12 @@ const ARROW_GAP = 5;             // clear air between the ball and the arrow tai
    from the bottom of whatever window this runs in. */
 const P = {
   speed:     420,    // launch speed, px/s
-  friction:  0.6,   // fraction of speed kept per second
+  friction:  0.6,    // fraction of speed kept per second
   bounce:    0.92,   // speed kept per wall or ball impact
-  stopAt:    16,     // below this the ball is considered at rest, px/s
-  gripAt:    50,     // speed under which friction starts to bite harder, px/s
-  grip:      0.40,   // friction multiplier at a standstill; 1.00 disables it
+  stopAt:    5,      // below this the ball is considered at rest, px/s
+  gripAt:    70,     // speed under which friction starts to bite harder, px/s
+  grip:      0.30,   // friction multiplier at a standstill; 1.00 disables it
+  /* The four below are settled and no longer appear on the tuning panel. */
   growTime:  0.50,   // seconds to reach final size once at rest
   sweep:     100,    // arrow rotation, degrees per second
   aimDelay:  0.03,   // dead time after a press before the arrow moves
@@ -139,8 +178,35 @@ let q = 1;
    of the whole page on every frame, which is what made this stutter. The
    backing store is capped at 2x: past that the extra pixels cost real
    fill rate and buy nothing visible on flat vector art. */
+/* iOS gives a web app no way to lock the orientation: screen.orientation.lock
+   is unimplemented in Safari and the manifest's orientation field is ignored.
+   The deploy build therefore turns the whole screen a quarter turn in CSS when
+   a phone is held sideways, so the game still presents as portrait. That makes
+   two things wrong here unless they are handled: getBoundingClientRect returns
+   the rotated bounding box, with width and height swapped, and pointer
+   coordinates arrive in screen axes rather than the canvas's own. */
+const ROT_Q = (window.PORTRAIT_LOCK && window.matchMedia)
+  ? window.matchMedia("(orientation: landscape) and (max-height: 600px)") : null;
+function rotated(){ return !!(ROT_Q && ROT_Q.matches); }
+/* Which way the page turned. The page itself is always upright to the eye, so
+   to keep the game glued to the phone's own frame the turn has to cancel the
+   device's: screen.orientation.angle is counter-clockwise from natural, so 90
+   is answered with a CSS rotate(-90deg) and 270 with rotate(90deg). The deploy
+   page sets data-rot; -1 here means the -90 case. */
+function rotDir(){
+  if (!rotated()) return 0;
+  return document.documentElement.getAttribute("data-rot") === "ccw" ? -1 : 1;
+}
+if (ROT_Q) {
+  const onRot = function(){ measure(); };
+  if (ROT_Q.addEventListener) ROT_Q.addEventListener("change", onRot);
+  else if (ROT_Q.addListener) ROT_Q.addListener(onRot);
+}
 function measure(){
-  const box = cvs.parentNode.getBoundingClientRect();
+  /* clientWidth and clientHeight are the box before any transform, which is the
+     one the canvas has to fit into. */
+  const host = cvs.parentNode;
+  const box = { width: host.clientWidth, height: host.clientHeight };
   if (!box.width || !box.height) return;
   /* Fit the fixed field into whatever the window offers, then pin the buffer to
      whole device pixels and derive the CSS size back from it. Sizing the other
@@ -319,8 +385,22 @@ function newGame(){
 
 /* ---------------------------------------------------------------- input */
 function canvasPoint(ev){
-  const rect = cvs.getBoundingClientRect();
-  return { x: (ev.clientX - rect.left) / rect.width * W, y: (ev.clientY - rect.top) / rect.height * H };
+  const r = cvs.getBoundingClientRect();
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  let dx = ev.clientX - cx, dy = ev.clientY - cy;
+  let wpx = r.width, hpx = r.height;
+  const rd = rotDir();
+  if (rd) {
+    /* Under rotate(t), a local vector (lx, ly) lands at screen
+       (lx cos t - ly sin t, lx sin t + ly cos t). At +90 that is (-ly, lx), so
+       back is lx = dy, ly = -dx; at -90 it is (ly, -lx), so back is lx = -dy,
+       ly = dx. */
+    const t = dx;
+    if (rd < 0) { dx = -dy; dy = t; }
+    else        { dx =  dy; dy = -t; }
+    wpx = r.height; hpx = r.width;
+  }
+  return { x: (dx + wpx/2) / wpx * W, y: (dy + hpx/2) / hpx * H };
 }
 function menuHit(p){
   const list = MENUS[scene]; if (!list) return null;
@@ -390,7 +470,7 @@ function hitStatic(s, type, hx, hy){
 }
 /* Death is not instant: the sound lands and the ball is left to travel for a
    moment so you see what killed you, then the screen comes up. */
-const REST_HOLD = 1/4;       // pause once the ball stops, before grow or vanish
+const REST_HOLD = 1/6;       // pause once the ball stops, before grow or vanish
 const DEATH_HOLD = 0.35;
 const DEATH_SLOWMO = 0.30;   // the last moment plays slowly enough to read
 function gameOver(){
@@ -843,7 +923,8 @@ function dbgSample(ms, n){
              "  p95 " + pc(0.95).toFixed(1) + "  max " + dbg.worst.toFixed(0) +
              "  >20ms " + Math.round(100*over/dbg.t.length) + "%  hitch " + dbg.hitches;
   const r = cvs.getBoundingClientRect(), dp = window.devicePixelRatio || 1;
-  const exact = Math.abs(r.width*dp - cvs.width) < 0.6 && Math.abs(r.height*dp - cvs.height) < 0.6;
+  const rw = rotated() ? r.height : r.width, rh = rotated() ? r.width : r.height;
+  const exact = Math.abs(rw*dp - cvs.width) < 0.6 && Math.abs(rh*dp - cvs.height) < 0.6;
   dbg.line2 = "steps " + dbg.steps.slice(0,5).join("/") + "  dpr " + dp +
               "  buf " + cvs.width + "x" + cvs.height + (exact ? "  1:1" : "  RESAMPLED");
   dbg.t = []; dbg.steps = [0,0,0,0,0,0]; dbg.worst = 0;
@@ -904,6 +985,7 @@ if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude
 else start((window.claude && window.claude.hot && window.claude.hot.data) || {});
 
 })();
+
 </script>
 </body>
 </html>
