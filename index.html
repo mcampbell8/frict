@@ -16,12 +16,12 @@
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
   body{margin:0;background:#000;-webkit-font-smoothing:antialiased}
-  /* Fixed and centred in both orientations. The rotated state used to switch
-     this element from static to fixed, which means the box it is positioned
-     against changes underneath it, and iOS does not always put it back where it
-     was. Now only the two dimensions and the rotate term change. */
-  .screen{position:fixed;top:50%;left:50%;width:100vw;height:100vh;
-          transform:translate(-50%,-50%);transform-origin:center;
+  /* Fixed in both orientations, so the box the element is positioned against
+     never changes underneath it. Upright it carries no transform at all: a
+     transformed ancestor invites the compositor to rasterise the canvas at its
+     own chosen scale and then stretch the result. */
+  .screen{position:fixed;top:0;left:0;width:100vw;height:100vh;
+          transform-origin:center;
           display:flex;align-items:center;justify-content:center;background:#000}
   @supports (height:1svh){ .screen{ height:100svh; } }
   .screen canvas{display:block;touch-action:none;cursor:pointer;
@@ -33,7 +33,7 @@
      whole screen turned back a quarter turn instead. The max-height guard keeps
      a desktop browser in landscape out of it. */
   @media (orientation:landscape) and (max-height:600px){
-    .screen{width:100vh;height:100vw;
+    .screen{top:50%;left:50%;width:100vh;height:100vw;
             transform:translate(-50%,-50%) rotate(90deg)}
     /* Turning the other way has to be answered the other way, or the game reads
        upside down in one of the two landscapes. */
@@ -326,6 +326,41 @@ window.addEventListener("resize", remeasure);
 window.addEventListener("orientationchange", remeasure);
 if (window.visualViewport) window.visualViewport.addEventListener("resize", remeasure);
 if (window.ResizeObserver) new ResizeObserver(measure).observe(cvs.parentNode);
+
+/* The buffer is sized from devicePixelRatio, and on iOS that value is not always
+   settled when the page first measures. Measure at the wrong instant and the
+   canvas ends up at a fraction of the resolution it should be, which the browser
+   then scales up: the picture goes soft and stays soft, because nothing changed
+   size afterwards to trigger another measurement. Two defences. */
+
+/* One: watch for the ratio itself changing. A media query pinned to the current
+   value stops matching the moment it moves. */
+let dprQ = null;
+function onDpr(){ remeasure(); watchDpr(); }
+function watchDpr(){
+  if (!window.matchMedia) return;
+  if (dprQ && dprQ.removeEventListener) dprQ.removeEventListener("change", onDpr);
+  dprQ = window.matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)");
+  if (dprQ.addEventListener) dprQ.addEventListener("change", onDpr);
+  else if (dprQ.addListener) dprQ.addListener(onDpr);
+}
+watchDpr();
+
+/* Two: check that the buffer still matches the element at the few moments it
+   could plausibly have drifted without anything firing a resize. That is once
+   shortly after boot, in case the ratio settled late and quietly; on coming back
+   from the background; and on starting a round, which is the last chance to fix
+   it before anyone is looking closely. Not on a timer: every other cause already
+   raises an event this file listens to. */
+function auditSize(){
+  /* The fractional width, not clientWidth: rounding to whole CSS pixels leaves
+     up to a device pixel and a half of slack at a ratio of 3, which would make
+     this fire every second for no reason. */
+  const w = cvs.getBoundingClientRect().width;
+  if (!w) return;
+  if (Math.abs(w * (window.devicePixelRatio || 1) - cvs.width) > 1) measure();
+}
+setTimeout(auditSize, 1200);
 /* H is constant now, so a saved game never needs rescaling on load. */
 
 /* ---------------------------------------------------------------- scenes */
@@ -346,7 +381,7 @@ MENUS[SC.MENU] = [
 ];
 MENUS[SC.PLAYMENU] = [
   { x:150, y:118, r:52, fs:20, label:"new\ngame", big:true, act:function(){ newGame(); } },
-  { x: 96, y:246, r:44, fs:15, label:"resume",              act:function(){ if (resumable()) scene = SC.GAME; } },
+  { x: 96, y:246, r:44, fs:15, label:"resume",              act:function(){ if (resumable()) { auditSize(); scene = SC.GAME; } } },
   { x:212, y:272, r:34, fs:14, label:"back",                act:function(){ scene = SC.MENU; } }
 ];
 MENUS[SC.ABOUT]   = [ { x: 40, y:440, r:26, fs:12, label:"menu", act:function(){ scene = SC.MENU; } } ];
@@ -463,6 +498,7 @@ document.addEventListener("visibilitychange", function(){
   /* Coming back from the background with a suspended context makes the first
      sound of the next round arrive late. */
   if (actx && actx.state === "suspended") { try { actx.resume(); } catch(e){} }
+  auditSize();
 });
 function loadGame(){
   const g = store.get("game", null);
@@ -476,6 +512,7 @@ function loadGame(){
   return true;
 }
 function newGame(){
+  auditSize();
   runPure = true;
   statics = []; pts = []; score = 0; overFlash = 0; dying = 0;
   aimAngle = 0; aimDir = 1; aimDelay = 0;
@@ -1174,7 +1211,7 @@ function start(saved){
   /* Measure first. This used to restore the saved game against the default
      height of 693 and only then discover the real one, which is why a resumed
      ball and arrow turned up in the wrong place. */
-  measure();
+  remeasure();
   loadGame();
   /* A face used only by canvas fillText is not always fetched, because nothing
      in the DOM references it. Ask for it explicitly. */
