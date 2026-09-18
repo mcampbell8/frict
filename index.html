@@ -113,7 +113,7 @@ const FIELD_TOP = TOP + TOP_LINE;
 const FIELD_L = SIDE, FIELD_R = W - SIDE;
 const RAZOR_SCALE = 1.1;         // the blade is 20% wider than a plain ball
 const SHOT_R = 14;               // fixed; no longer a dial
-const SCORE_PX = 42;             // foot score size
+const SCORE_PX = 37;             // foot score size
 const SCORE_BASE = 26;           // its baseline, measured up from the bottom
 const ARROW_GAP = 5;             // clear air between the ball and the arrow tail                  // notch clearance: 50pt on a 13 mini, 59pt on a Dynamic Island phone
 /* Calibration, fixed. These are the values arrived at by hand; the tuning
@@ -223,6 +223,7 @@ let wallsSet = store.get("walls", null);
 let wallsOn = (wallsSet === null) ? wallsDefault() : !!wallsSet;
 function play(name, vol, delay){
   const key = clipKey(name);
+  if (replaying) return;
   if (!soundOn || !actx || !BUF[key]) return;
   /* A suspended context does not advance its own clock, so anything started
      against it sits there and fires whenever the context next wakes, which is
@@ -401,6 +402,16 @@ function slotLabel(k, text, fs, rot, lh){
   drawButton(slot(k, { fs:fs, rot:rot, lh:lh, label:text, solid:true }));
 }
 
+/* The wordmark, bottom right, the side the original used. It is the same block
+   in the same place on every screen that carries it, so it has to be settled
+   here, before the menus that line themselves up with it. */
+const TITLE_R = 294, TITLE_Y = 612, TITLE_PX = 54;
+const SUBTITLE = "reconstructed";
+const SUB_GAP = 6;               // between the mark's ink and the subtitle's
+/* Both lines are set on their middles, so the ink of a line runs from about a
+   third of its size above its middle to the same fraction below. */
+const TITLE_CAP = 0.35;
+
 MENUS[SC.MENU] = [
   /* Nothing to resume means the play menu has one live button on it, so skip
      it and start the round. */
@@ -412,15 +423,14 @@ MENUS[SC.MENU] = [
   slot("E", { fs:26, label:"i",          rot:-10.3, act:function(){ scene = SC.ABOUT; } }),
   slot("D", { fs:43, label:"?",          rot:5.5,   act:function(){ tutStep=0; scene = SC.TUT; } })
 ];
-/* The heading moves to the top circle and new game takes the big one. Leaving
-   play! in the big circle on both screens meant the same word in the same place
-   at two slightly different angles, which reads as the button turning under your
-   thumb as the screen changes. */
+/* Resume sits where play! was, so a second tap in the same place picks the
+   saved round back up rather than throwing it away. New game moves down to the
+   circle a thumb has to travel to. */
 MENUS[SC.PLAYMENU] = [
-  slot("B", { fs:40, lh:0.86, rot:-8.9, label:"new\ngame", solid:true,
-              act:function(){ newGame(); } }),
-  slot("C", { fs:30, rot:-7.1, label:"resume", solid:true,
+  slot("B", { fs:38, rot:-8.9, label:"resume", solid:true,
               act:function(){ if (resumable()) { auditSize(); scene = SC.GAME; } } }),
+  slot("C", { fs:31, lh:0.86, rot:-7.1, label:"new\ngame", solid:true,
+              act:function(){ newGame(); } }),
   slot("D", { fs:21, rot:3.4, label:"back", act:function(){ scene = SC.MENU; } })
 ];
 /* Reset asks first, on its own screen, the way the original did. */
@@ -429,7 +439,10 @@ MENUS[SC.RESET] = [
   slot("C", { fs:34, rot:-9.3, label:"yes",
               act:function(){ high = 0; highDue = true; scene = SC.SETTINGS; } })
 ];
-MENUS[SC.ABOUT]   = [ { x: 40, y:440, r:26, fs:12, label:"menu", act:function(){ scene = SC.MENU; } } ];
+/* Sits on the far side of the screen from the wordmark, on its centre line, so
+   the bottom of the page reads as one row. */
+MENUS[SC.ABOUT]   = [ { x: 40, fy: function(){ return titleM().mid; }, r:26, fs:12,
+                        label:"menu", act:function(){ scene = SC.MENU; } } ];
 /* Reset moved to Settings, which is where the original kept it. */
 MENUS[SC.HISCORE] = [
   slot("D", { fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
@@ -439,11 +452,11 @@ MENUS[SC.SETTINGS] = [
               act:function(){ scene = SC.RESET; } }),
   slot("B", { sound:true, label:"",
               act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } }),
-  slot("F", { fs:11, toggle:true, quiet:true,
+  slot("F", { fs:13, lh:0.92, toggle:true, quiet:true,
               on:   function(){ return scheme === 1; },
-              text: function(){ return "sound\n" + SCHEMES[scheme][0]; },
+              text: function(){ return (scheme === 1 ? "bubble" : "original") + "\nsounds"; },
               act:  function(){ setScheme(); } }),
-  slot("E", { fs:11, toggle:true,
+  slot("E", { fs:11, lh:0.92, toggle:true,
               on:   function(){ return wallsOn; },
               text: function(){ return wallsOn ? "edges\non" : "edges\noff"; },
               act:  function(){ wallsOn = !wallsOn; wallsSet = wallsOn; store.set("walls", wallsOn); } }),
@@ -530,6 +543,22 @@ function readyBall(){ dealType(); makeBall(nextType); }
    stall exactly where the next shot begins. Queued out of the frame instead. */
 let saveDue = false, highDue = false;
 function saveGame(){ saveDue = true; }
+/* Marking the save due and letting the timer catch it is good enough for a
+   landing, which cannot be taken back anyway. A ball in the air is different:
+   that is the moment somebody would kill the app from the switcher, and iOS
+   runs no handler at all when they do, so the file on disk would still be the
+   field as it stood before the shot. The launch is therefore written the
+   instant the ball leaves, synchronously, and it carries the ball's position
+   and velocity. Nothing random happens while a ball is in the air, so that
+   record runs forward to exactly the outcome the shot was going to have. */
+function saveLaunch(){
+  if (!ball) return;
+  saveDue = false;
+  try {
+    store.set("game", { s: statics, sc: score, t: turn, p: pity, ty: ball.type,
+                        fl: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy } });
+  } catch(e){}
+}
 function flushSave(){
   if (highDue) { highDue = false; try { store.set("high", high); } catch(e){} }
   if (!saveDue) return;
@@ -548,6 +577,28 @@ document.addEventListener("visibilitychange", function(){
   if (actx && actx.state === "suspended") { try { actx.resume(); } catch(e){} }
   auditSize();
 });
+/* Run the shot forward with nothing drawn and no sound until the turn ends,
+   either with the next ball waiting or with the round over. The loop mirrors
+   stepWorld: the parts it leaves out are the score popups and the flash, which
+   are there to be watched and there is nobody watching. */
+let replaying = false;
+function replayFlight(){
+  replaying = true;
+  let guard = 0;
+  while (guard++ < 120 * 90) {
+    if (!ball) break;                  // lost, and endRound has already run
+    if (ball.state === "aim") break;   // the turn finished, next ball is up
+    if (dying > 0) { dying -= STEP; if (dying <= 0) { endRound(); break; } }
+    for (const s of statics) if (s.cool > 0) s.cool -= STEP;
+    stepBall(dying > 0 ? STEP * DEATH_SLOWMO : STEP);
+  }
+  replaying = false;
+  dying = 0; overFlash = 0; pts = [];
+  /* Whatever it came to is now the position of record, so the same shot cannot
+     be replayed a second time. */
+  saveDue = true;
+  flushSave();
+}
 function loadGame(){
   const g = store.get("game", null);
   if (!g || !g.s || !Array.isArray(g.s)) return false;
@@ -556,7 +607,15 @@ function loadGame(){
   score = g.sc || 0; turn = g.t || 1; pity = g.p || 0;
   makeBall(g.ty || "normal");
   pts = []; inPlay = true;
-  return true;
+  if (g.fl && isFinite(g.fl.x) && isFinite(g.fl.y) &&
+      isFinite(g.fl.vx) && isFinite(g.fl.vy)) {
+    ball.x = ball.px = g.fl.x;
+    ball.y = ball.py = g.fl.y;
+    ball.vx = g.fl.vx; ball.vy = g.fl.vy;
+    ball.state = "fly"; armed = false;
+    replayFlight();
+  }
+  return inPlay;
 }
 function newGame(){
   auditSize();
@@ -602,7 +661,10 @@ function canvasPoint(ev){
 /* Most buttons still carry the original 320x480 design's y and get scaled; the
    main menu carries its own, because its arrangement is measured off the
    bundle's artwork and has to sit in the taller field on its own terms. */
-function btnY(b){ return b.fy === undefined ? V(b.y) : b.fy; }
+function btnY(b){
+  if (typeof b.fy === "function") return b.fy();
+  return b.fy === undefined ? V(b.y) : b.fy;
+}
 function menuHit(p){
   const list = MENUS[scene]; if (!list) return null;
   for (const b of list) if (Math.hypot(p.x-b.x, p.y-btnY(b)) <= b.r) return b;
@@ -633,6 +695,7 @@ function release(){
     ball.vy = -Math.cos(a) * P.speed;
     ball.state = "fly";
     armed = false;
+    saveLaunch();
   }
   aiming = false;
 }
@@ -885,11 +948,11 @@ function drawBall(x, y, r, type, hits, spin){
   }
 }
 /* x,y is the baseline. drawNumberMid centres the digits on y instead. */
-function drawNumber(n, x, y, px, align){
+function drawNumber(n, x, y, px, align, color){
   ctx.font = "700 " + px + "px " + BARLOW;
   ctx.textAlign = align || "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = "#00ff00";
+  ctx.fillStyle = color || "#00ff00";
   ctx.fillText(String(n), x, y);
 }
 function drawNumberMid(n, x, cy, px, align){
@@ -899,6 +962,9 @@ function drawNumberMid(n, x, cy, px, align){
    12 on 91. The artwork was not consistent about this and the difference shows
    most at the small sizes, where a fixed weight reads as a heavy blob. */
 const RING_K = 12 / 91;
+/* The three big buttons sit at dr/r of .773, .791 and .775; the toggles have no
+   measured disc of their own, so they take the average. */
+const TOGGLE_DR = 0.78;
 function ringW(b){ return b.rw === undefined ? b.r * RING_K : b.rw; }
 function ring(x, y, r, lw){
   ctx.beginPath(); ctx.arc(x, y, r - lw/2, 0, Math.PI*2);
@@ -957,14 +1023,23 @@ function chevron(x, y, s, dir){
 function drawButton(b){
   const by = btnY(b);
   if (b.chev) { ring(b.x, by, b.r, ringW(b)); chevron(b.x, by, b.r * 0.42, b.chev); return; }
-  /* A toggle reads as filled when it is on: green disc, black text, the inverse
-     of every other bubble on the screen. */
+  /* A toggle is the same two-stage circle as the big buttons, with the inner
+     disc standing for the setting: an empty ring is the default, the disc
+     filled in is the other choice. The word does not change with it. */
   if (b.toggle) {
-    const on = b.on();
-    ctx.beginPath(); ctx.arc(b.x, by, b.r - 2.5, 0, Math.PI*2);
-    ctx.fillStyle = on ? "#00ff00" : "#000000"; ctx.fill();
-    ctx.lineWidth = 5; ctx.strokeStyle = "#00ff00"; ctx.stroke();
-    label(b.text(), b.x, by, b.fs || 12, on ? "#000000" : "#00ff00", "center", 500);
+    const on = b.on(), rw = ringW(b);
+    ring(b.x, by, b.r, rw);
+    if (on) {
+      ctx.fillStyle = "#00ff00";
+      ctx.beginPath(); ctx.arc(b.x, by, b.dr === undefined ? b.r * TOGGLE_DR : b.dr, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.translate(b.x, by);
+    if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
+    label(b.text(), 0, 0, b.fs || 12, on ? "#000000" : "#00ff00", "center",
+          on ? 600 : 500, undefined, b.lh);
+    ctx.restore();
     return;
   }
   /* The main menu's three big buttons: a filled disc with its own ring standing
@@ -1015,9 +1090,6 @@ function drawMenu(){
     } else drawButton(b);
   }
 }
-function wordmark(x, y, size){
-  label("frict", x, y, size, "#00ff00", "center", 600);
-}
 /* One field unit, unless the window is small enough that one unit falls under a
    device pixel, in which case the line would render as a grey smear instead of a
    green line. Everything is drawn through a uniform scale of q, so a unit is q
@@ -1067,19 +1139,63 @@ function edgeBox(){
   ctx.restore();
 }
 
-/* The word alone, no circle, in the quiet green the rule and the dashed line
-   use. It sits on the left between the dashed line and the score, aligned to the
-   same edge as the score beneath it. The tap target does not have to match the
-   ink, so the mark stays small while the thing you press stays comfortable, and
-   the arrow never sweeps past x 97 so it cannot be caught while aiming. */
-const FIELD_MENU = { x:28, fy: H - SCORE_BASE - SCORE_PX * NUMCAP - 13, r:24,
-                     act:function(){ scene = SC.MENU; } };
 const QUIET = "#007f00";
+/* Number on top, its caption under it: best under the best, and under the score
+   three dots, which is the way back to the menu. No word for it on the field.
+   SCORE_BASE is the bottom of the whole block, measured up from the bottom of
+   the screen, so the two rows are placed from there upward. */
+const LAB_PX = 15, LAB_CAP = 0.70, SCORE_GAP = 13;
+const SCORE_LAB_Y = H - SCORE_BASE - LAB_PX * LAB_CAP / 2;
+const SCORE_NUM_Y = SCORE_LAB_Y - LAB_PX * LAB_CAP / 2 - SCORE_GAP;
+/* The tap target does not have to match the ink, so the dots stay small while
+   the thing you press stays comfortable, and the arrow never sweeps past x 97
+   so it cannot be caught while aiming. */
+/* Each column hangs off its own edge, so a number grows inward as it gains
+   digits and nothing ever reaches the screen edge. */
+const SCORE_MARGIN = 12;
+const FIELD_MENU = { x: SCORE_MARGIN + 11, fy: SCORE_LAB_Y, r:24,
+                     act:function(){ scene = SC.MENU; } };
+/* textAlign lines up the advance box, which carries the face's side bearings,
+   so a number and the caption under it set to the same edge still do not have
+   their ink flush with each other. Barlow's digits carry about a unit on each
+   side; the dots are drawn ink-first and carry none, which is the gap. These
+   place the ink itself, so every edge of the block lands on the margin. */
+function inkText(text, x, y, px, weight, face, color, base, right){
+  ctx.font = weight + " " + px + "px " + face;
+  ctx.textAlign = right ? "right" : "left";
+  ctx.textBaseline = base;
+  const m = ctx.measureText(text);
+  const b = right ? m.actualBoundingBoxRight : m.actualBoundingBoxLeft;
+  ctx.fillStyle = color;
+  ctx.fillText(text, x + (isFinite(b) ? (right ? -b : b) : 0), y);
+}
+/* x is the left edge of the group, so the dots set flush with the score above
+   them rather than on its centre. */
+function dots(x, y, color){
+  ctx.fillStyle = color;
+  const r = 2.2;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath(); ctx.arc(x + r + i * 9, y, r, 0, Math.PI*2); ctx.fill();
+  }
+}
 function drawGame(){
   /* With the walls on the rule is the top of the box, corners and all; with them
      off it is a plain line across the screen, square as it always was. */
   if (wallsOn) edgeBox(); else topRule();
   baseline();
+
+  /* The score sits under everything that is in play, so a ball that rolls down
+     into the corner passes over its own number rather than behind it. */
+  /* high tracks the score upward as you play, so being level with it is what
+     beating it looks like from inside the round. Both numbers brighten together,
+     because what is happening is one number becoming the other. */
+  const hot = score > 0 && score >= high;
+  const nc  = hot ? "#00ff00" : QUIET;
+  inkText(String(score), SCORE_MARGIN, SCORE_NUM_Y, SCORE_PX, 700, BARLOW, nc, "alphabetic", false);
+  inkText(String(high), W - SCORE_MARGIN, SCORE_NUM_Y, SCORE_PX, 700, BARLOW, nc, "alphabetic", true);
+  inkText("best", W - SCORE_MARGIN, SCORE_LAB_Y, LAB_PX, 500, FREDOKA, QUIET, "middle", true);
+  if (scene === SC.GAME) dots(SCORE_MARGIN, SCORE_LAB_Y, QUIET);
+
   for (const s of statics) drawBall(s.x, s.y, s.r, s.type, s.hits);
 
   if (ball) {
@@ -1103,15 +1219,6 @@ function drawGame(){
     ctx.restore();
   }
 
-  const npx = SCORE_PX, by = H - SCORE_BASE;
-  drawNumber(score, 12, by, npx, "left");
-  drawNumber(high, 308, by, npx, "right");
-  ctx.font = "700 " + npx + "px " + BARLOW;
-  const hw = ctx.measureText(String(high)).width;
-  /* One line for both, so menu and best sit on the same rule. */
-  const capY = by - npx * NUMCAP - 13;
-  label("best", 308 - hw/2, capY, 15, QUIET, "center", 500);
-  if (scene === SC.GAME) label("menu", 12, capY, 15, QUIET, "left", 500);
 }
 
 function drawOver(){
@@ -1123,19 +1230,48 @@ function drawOver(){
   slotLabel("A", "game\nover", 32, -3.3, 0.80);
   ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.r * RING_K);
   drawNumberMid(score, SLOT.B.x, SLOT.B.fy, 58, "center");
-  const nb = score >= high && score > 0;
-  /* The artwork has no room for this, so it sits under the whole group. */
-  label(nb ? "new best!" : "best: " + high, 160, 545, nb ? 24 : 21, "#00ff00", "center", 500);
   drawMenu();
 }
 
+/* Bottom right, the side the original used, with the subtitle centred on the
+   mark rather than hung off its right edge. The mark is set right-aligned, so
+   its centre has to be measured rather than assumed. */
+/* The subtitle is set to whatever size makes its ink exactly as wide as the
+   mark's, so the two lines square off into a block instead of one word floating
+   under another. Measured off the ink rather than the advance box, because the
+   two are set at different sizes and weights and their side bearings do not
+   scale together. */
+let TM = null, TMfixed = false;
+function inkW(text, px, weight){
+  ctx.font = weight + " " + px + "px " + FREDOKA;
+  ctx.textAlign = "left";
+  const m = ctx.measureText(text);
+  return { w: m.actualBoundingBoxLeft + m.actualBoundingBoxRight, l: m.actualBoundingBoxLeft };
+}
+function titleM(){
+  if (TM && TMfixed) return TM;
+  const mark = inkW("frict", TITLE_PX, 600);
+  const sub  = inkW(SUBTITLE, 100, 400);
+  const px   = sub.w > 0 ? 100 * mark.w / sub.w : 12;
+  /* Right-aligned, so the mark's ink ends at TITLE_R and starts a width back. */
+  const x0   = TITLE_R - mark.w;
+  const y    = TITLE_Y + TITLE_PX * TITLE_CAP + SUB_GAP + px * TITLE_CAP;
+  TM = { px: px, y: y, x0: x0,
+         mid: ((TITLE_Y - TITLE_PX * TITLE_CAP) + (y + px * TITLE_CAP)) / 2 };
+  try { TMfixed = document.fonts.check('600 ' + TITLE_PX + 'px "Fredoka"'); } catch(e){}
+  return TM;
+}
+function titleBlock(){
+  const m = titleM();
+  label("frict", TITLE_R, TITLE_Y, TITLE_PX, "#00ff00", "right", 600);
+  /* The quiet green the rule, the dashed line and the score use. It used to be
+     that colour at 55% over black, which is a step darker again and read as a
+     different, muddier green. */
+  inkText(SUBTITLE, m.x0, m.y, m.px, 400, FREDOKA, QUIET, "middle", false);
+}
 function drawTitle(){
   drawMenu();
-  /* Bottom right, with the credit under it, the side the original used. */
-  label("frict", 294, 612, 54, "#00ff00", "right", 600);
-  ctx.save(); ctx.globalAlpha = 0.55;
-  label("sjimpansee · 2009", 294, 648, 12, "#007f00", "right", 400);
-  ctx.restore();
+  titleBlock();
 }
 
 function drawTut(){
@@ -1182,16 +1318,19 @@ function drawTut(){
   drawMenu();
 }
 
+/* The mark does not move when you come in here. It stays in the bottom right
+   corner it occupies on the menu, at the same size, so the screen reads as the
+   menu with its buttons swapped for text rather than as a new page. */
 function drawAbout(){
-  wordmark(160, V(70), 44);
-  label("reconstructed", 160, V(96), 16, "#00bf00", "center", 500);
+  titleBlock();
   let y = V(160);
-  y = body("Frict was created by Joris Truyen and published by Sjimpansee in April 2009, built on the cocos2d-iphone engine.", 30, y, 16, 260) + 14;
-  body("This version was rebuilt from the original app bundle and updated for modern phones.", 30, y, 16, 260);
+  y = body("Frict was originally created by Joris Truyen and released on the iOS App Store in the late 2000's.", 30, y, 16, 260) + 14;
+  body("This version is a fan reconstruction and update of the original game, based on fond memories and tuned for modern phones.", 30, y, 16, 260);
   drawMenu();
 }
 
 function drawHiscore(){
+  titleBlock();
   slotLabel("A", "high\nscore", 32, -4, 0.80);
   ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.r * RING_K);
   drawNumberMid(high, SLOT.B.x, SLOT.B.fy, 58, "center");
@@ -1201,6 +1340,7 @@ function drawHiscore(){
 /* The heading is the filled circle, the way the original had it, and the speaker
    says whether sound is on without needing a caption under it. */
 function drawSettings(){
+  titleBlock();
   slotLabel("C", "settings", 27, -6.1);
   drawMenu();
 }
