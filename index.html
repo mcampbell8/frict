@@ -345,7 +345,7 @@ setTimeout(auditSize, 1200);
 /* H is constant now, so a saved game never needs rescaling on load. */
 
 /* ---------------------------------------------------------------- scenes */
-const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7 };
+const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7, RESET:8 };
 let scene = SC.MENU;
 let tutStep = 0;
 
@@ -380,7 +380,10 @@ function slotLabel(k, text, fs, rot, lh){
 }
 
 MENUS[SC.MENU] = [
-  slot("B", { fs:57, label:"play!",      rot:3.3,  solid:true, act:function(){ scene = SC.PLAYMENU; } }),
+  /* Nothing to resume means the play menu has one live button on it, so skip
+     it and start the round. */
+  slot("B", { fs:57, label:"play!", rot:3.3, solid:true,
+              act:function(){ if (resumable()) scene = SC.PLAYMENU; else newGame(); } }),
   slot("A", { fs:32, label:"high\nscore", rot:-4, lh:0.80, solid:true,
               act:function(){ scene = SC.HISCORE; } }),
   slot("C", { fs:27, label:"settings",   rot:-6.1, solid:true, act:function(){ scene = SC.SETTINGS; } }),
@@ -388,9 +391,16 @@ MENUS[SC.MENU] = [
   slot("D", { fs:43, label:"?",          rot:5.5,   act:function(){ tutStep=0; scene = SC.TUT; } })
 ];
 MENUS[SC.PLAYMENU] = [
-  { x:150, y:118, r:52, fs:20, label:"new\ngame", big:true, act:function(){ newGame(); } },
-  { x: 96, y:246, r:44, fs:15, label:"resume",              act:function(){ if (resumable()) { auditSize(); scene = SC.GAME; } } },
-  { x:212, y:272, r:34, fs:14, label:"back",                act:function(){ scene = SC.MENU; } }
+  slot("A", { fs:34, lh:0.86, rot:-8.9, label:"new\ngame", act:function(){ newGame(); } }),
+  slot("C", { fs:32, rot:-7.1, label:"resume",
+              act:function(){ if (resumable()) { auditSize(); scene = SC.GAME; } } }),
+  slot("D", { fs:21, rot:3.4, label:"back", act:function(){ scene = SC.MENU; } })
+];
+/* Reset asks first, on its own screen, the way the original did. */
+MENUS[SC.RESET] = [
+  slot("A", { fs:34, rot:-3.6, label:"no",  act:function(){ scene = SC.SETTINGS; } }),
+  slot("C", { fs:34, rot:-9.3, label:"yes",
+              act:function(){ high = 0; highDue = true; scene = SC.SETTINGS; } })
 ];
 MENUS[SC.ABOUT]   = [ { x: 40, y:440, r:26, fs:12, label:"menu", act:function(){ scene = SC.MENU; } } ];
 /* Reset moved to Settings, which is where the original kept it. */
@@ -399,7 +409,7 @@ MENUS[SC.HISCORE] = [
 ];
 MENUS[SC.SETTINGS] = [
   slot("A", { fs:24, lh:0.86, rot:-4.9, label:"reset\nhigh\nscore",
-              act:function(){ high = 0; highDue = true; } }),
+              act:function(){ scene = SC.RESET; } }),
   slot("B", { sound:true, label:"",
               act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } }),
   slot("F", { fs:11, toggle:true, quiet:true,
@@ -413,9 +423,9 @@ MENUS[SC.SETTINGS] = [
   slot("D", { fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
 ];
 MENUS[SC.TUT] = [
-  { x: 40, y:440, r:26, fs:24, label:"\u2039", act:function(){ tutStep = Math.max(0, tutStep-1); } },
-  { x:280, y:440, r:26, fs:24, label:"\u203a", act:function(){ if (tutStep>=4) scene = SC.MENU; else tutStep++; } },
-  { x:280, y: 45, r:23, fs:11, label:"menu",    act:function(){ scene = SC.MENU; } }
+  { x: 40, y:440, r:26, chev:-1, act:function(){ tutStep = Math.max(0, tutStep-1); } },
+  { x:280, y:440, r:26, chev: 1, act:function(){ if (tutStep>=4) scene = SC.MENU; else tutStep++; } },
+  { x:280, y: 45, r:23, fs:11, label:"menu", act:function(){ scene = SC.MENU; } }
 ];
 MENUS[SC.OVER] = [
   slot("C", { fs:32, label:"replay", rot:-8.2, act:function(){ newGame(); } }),
@@ -892,8 +902,24 @@ const ICON_MUTE = new Path2D("M16,15.5a1,1,0,0,1-.71-.29,1,1,0,0,1,0-1.42l5-5a1,
 const ICON_SCALE = 0.045;    // of the button's radius, so it travels with it
 const ICON_TILT  = -7;       // degrees, counter-clockwise
 
+/* Drawn rather than set in type. A guillemet sits on the text baseline and its
+   ink is nowhere near the middle of the em, so setting one never lands in the
+   centre of a circle however it is aligned. */
+function chevron(x, y, s, dir){
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.strokeStyle = "#00ff00"; ctx.lineWidth = s * 0.30;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(-dir * s * 0.34, -s * 0.52);
+  ctx.lineTo( dir * s * 0.34, 0);
+  ctx.lineTo(-dir * s * 0.34, s * 0.52);
+  ctx.stroke();
+  ctx.restore();
+}
 function drawButton(b){
   const by = btnY(b);
+  if (b.chev) { ring(b.x, by, b.r, b.rw || 5); chevron(b.x, by, b.r * 0.72, b.chev); return; }
   /* A toggle reads as filled when it is on: green disc, black text, the inverse
      of every other bubble on the screen. */
   if (b.toggle) {
@@ -947,7 +973,7 @@ function drawMenu(){
   for (const b of list) {
     if (scene === SC.PLAYMENU && b.label === "resume" && !resumable()) {
       ctx.save(); ctx.globalAlpha = 0.28; drawButton(b); ctx.restore();
-    } else if (scene === SC.TUT && b.label === "‹" && tutStep === 0) {
+    } else if (scene === SC.TUT && b.chev === -1 && tutStep === 0) {
       ctx.save(); ctx.globalAlpha = 0.28; drawButton(b); ctx.restore();
     } else drawButton(b);
   }
@@ -1131,6 +1157,15 @@ function drawSettings(){
   drawMenu();
 }
 
+function drawPlayMenu(){
+  slotLabel("B", "play!", 57, 4.8);
+  drawMenu();
+}
+function drawReset(){
+  slotLabel("B", "reset?", 46, 2.7);
+  drawMenu();
+}
+
 function render(){
   ctx.setTransform(q, 0, 0, q, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -1142,7 +1177,8 @@ function render(){
   else if (scene === SC.ABOUT)    drawAbout();
   else if (scene === SC.HISCORE)  drawHiscore();
   else if (scene === SC.SETTINGS) drawSettings();
-  else if (scene === SC.PLAYMENU) { drawMenu(); wordmark(160, V(356), 46); }
+  else if (scene === SC.PLAYMENU) drawPlayMenu();
+  else if (scene === SC.RESET)    drawReset();
   else                            drawTitle();
   drawDbg();
 }
