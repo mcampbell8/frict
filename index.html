@@ -24,9 +24,12 @@
           transform-origin:center;
           display:flex;align-items:center;justify-content:center;background:#000}
   @supports (height:1svh){ .screen{ height:100svh; } }
+  /* No will-change or translateZ here. Promoting a canvas to its own 3D layer
+     hands its contents scale to the compositor, which is free to rasterise the
+     texture at a scale of its choosing and stretch it, and that is a soft canvas
+     the page cannot measure its way out of. A canvas gets its own layer anyway. */
   .screen canvas{display:block;touch-action:none;cursor:pointer;
-    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
-    will-change:transform;transform:translateZ(0)}
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
   .screen canvas:focus{outline:none}
   /* Portrait lock. Android obeys the manifest and never reaches this. iOS gives
      a web page no orientation lock at all, so a phone held sideways gets the
@@ -282,9 +285,28 @@ function measure(){
      shimmers as things move across it. */
   const dpr = window.devicePixelRatio || 1;
   const scale = Math.min(box.width / W, box.height / H);
-  const bw = Math.max(1, Math.round(W * scale * dpr));
+  /* Whole device pixels in the buffer, and, where the ratio is a whole number,
+     a whole number of CSS pixels in both directions as well. A layer sitting on
+     a fractional CSS size gets snapped to the pixel grid by the compositor and
+     its texture stretched to suit, and that is a soft canvas no amount of
+     re-measuring will fix.
+
+     320 by 693 cannot be both exact and whole at these sizes, so the height is
+     rounded to the nearest whole CSS pixel. That is at most half a pixel, a
+     shape error under a tenth of a percent, and the drawing still uses one
+     uniform scale so nothing is stretched. */
+  let bw, bh;
+  if (Math.abs(dpr - Math.round(dpr)) < 1e-6) {
+    const d = Math.round(dpr);
+    let cw = Math.max(1, Math.floor(W * scale));
+    let ch = Math.round(cw * H / W);
+    if (ch > Math.floor(box.height)) { ch = Math.floor(box.height); cw = Math.round(ch * W / H); }
+    bw = cw * d; bh = ch * d;
+  } else {
+    bw = Math.max(1, Math.round(W * scale * dpr));
+    bh = Math.round(H * (bw / W));
+  }
   const qq = bw / W;
-  const bh = Math.round(H * qq);
   cvs.style.width  = (bw / dpr) + "px";
   cvs.style.height = (bh / dpr) + "px";
   q = qq;
@@ -364,14 +386,14 @@ const MENUS = {};
    62 the whole composition moves down to sit in the taller field. r is the outer
    edge, dr the filled disc where a slot has one, rw the ring's thickness. */
 const SLOT = {
-  A: { x: 95.5, fy:174.5, r:70.5, dr:54.5, rw:8  },   // top left
-  F: { x:202,   fy:164,   r:38,            rw:9  },   // small, top right
-  B: { x:200,   fy:288,   r:91,   dr:72,   rw:12 },   // the big one
-  E: { x: 94.5, fy:332,   r:26.5,          rw:6  },   // small, tucked left
-  C: { x:117,   fy:425,   r:71,   dr:55,   rw:8  },   // bottom left
+  A: { x: 95.5, fy:174.5, r:70.5, dr:54.5 },   // top left
+  F: { x:202,   fy:164,   r:38            },   // small, top right
+  B: { x:200,   fy:288,   r:91,   dr:72   },   // the big one
+  E: { x: 94.5, fy:332,   r:26.5          },   // small, tucked left
+  C: { x:117,   fy:425,   r:71,   dr:55   },   // bottom left
   /* D sits two units inside both B and C rather than exactly tangent to them,
      which is the difference between touching and looking like a hairline gap. */
-  D: { x:225.5, fy:414.5, r:40,            rw:8  }    // bottom right
+  D: { x:225.5, fy:414.5, r:40            }    // bottom right
 };
 function slot(k, o){ return Object.assign({}, SLOT[k], o); }
 /* The same circle drawn as a label rather than a button. */
@@ -390,9 +412,14 @@ MENUS[SC.MENU] = [
   slot("E", { fs:26, label:"i",          rot:-10.3, act:function(){ scene = SC.ABOUT; } }),
   slot("D", { fs:43, label:"?",          rot:5.5,   act:function(){ tutStep=0; scene = SC.TUT; } })
 ];
+/* The heading moves to the top circle and new game takes the big one. Leaving
+   play! in the big circle on both screens meant the same word in the same place
+   at two slightly different angles, which reads as the button turning under your
+   thumb as the screen changes. */
 MENUS[SC.PLAYMENU] = [
-  slot("A", { fs:34, lh:0.86, rot:-8.9, label:"new\ngame", act:function(){ newGame(); } }),
-  slot("C", { fs:32, rot:-7.1, label:"resume",
+  slot("B", { fs:40, lh:0.86, rot:-8.9, label:"new\ngame", solid:true,
+              act:function(){ newGame(); } }),
+  slot("C", { fs:30, rot:-7.1, label:"resume", solid:true,
               act:function(){ if (resumable()) { auditSize(); scene = SC.GAME; } } }),
   slot("D", { fs:21, rot:3.4, label:"back", act:function(){ scene = SC.MENU; } })
 ];
@@ -584,6 +611,11 @@ function menuHit(p){
 function press(p){
   audioInit(); if (actx && actx.state === "suspended") actx.resume();
   if (scene === SC.GAME) {
+    /* The one thing on the field that is a button rather than somewhere to aim
+       from, so it has to be checked before the press becomes an aim. */
+    if (p && Math.hypot(p.x - FIELD_MENU.x, p.y - FIELD_MENU.fy) <= FIELD_MENU.r) {
+      play("tap", 0.5); FIELD_MENU.act(); return;
+    }
     // resumes from the angle it stopped at, but always sweeping rightward first
     if (ball && ball.state === "aim") { aiming = true; aimDir = 1; aimDelay = P.aimDelay; }
     return;
@@ -863,6 +895,11 @@ function drawNumber(n, x, y, px, align){
 function drawNumberMid(n, x, cy, px, align){
   drawNumber(n, x, cy + px * NUMCAP / 2, px, align);
 }
+/* Every ring is as thick, relative to its own radius, as the play circle's:
+   12 on 91. The artwork was not consistent about this and the difference shows
+   most at the small sizes, where a fixed weight reads as a heavy blob. */
+const RING_K = 12 / 91;
+function ringW(b){ return b.rw === undefined ? b.r * RING_K : b.rw; }
 function ring(x, y, r, lw){
   ctx.beginPath(); ctx.arc(x, y, r - lw/2, 0, Math.PI*2);
   ctx.fillStyle = "#000"; ctx.fill();
@@ -919,7 +956,7 @@ function chevron(x, y, s, dir){
 }
 function drawButton(b){
   const by = btnY(b);
-  if (b.chev) { ring(b.x, by, b.r, b.rw || 5); chevron(b.x, by, b.r * 0.72, b.chev); return; }
+  if (b.chev) { ring(b.x, by, b.r, ringW(b)); chevron(b.x, by, b.r * 0.42, b.chev); return; }
   /* A toggle reads as filled when it is on: green disc, black text, the inverse
      of every other bubble on the screen. */
   if (b.toggle) {
@@ -933,7 +970,7 @@ function drawButton(b){
   /* The main menu's three big buttons: a filled disc with its own ring standing
      off it, which is how the original drew them. */
   if (b.solid) {
-    const rw = b.rw || 8;
+    const rw = ringW(b);
     ctx.fillStyle = "#00ff00";
     ctx.beginPath(); ctx.arc(b.x, by, b.dr, 0, Math.PI*2); ctx.fill();
     ctx.lineWidth = rw; ctx.strokeStyle = "#00ff00";
@@ -948,7 +985,7 @@ function drawButton(b){
     return;
   }
   if (b.sound) {
-    ring(b.x, by, b.r, b.rw || 5);
+    ring(b.x, by, b.r, ringW(b));
     ctx.save();
     ctx.translate(b.x, by);
     ctx.rotate(ICON_TILT * Math.PI / 180);
@@ -961,7 +998,7 @@ function drawButton(b){
     ctx.restore();
     return;
   }
-  ring(b.x, by, b.r, b.rw || 5);
+  ring(b.x, by, b.r, ringW(b));
   ctx.save();
   ctx.translate(b.x, by);
   if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
@@ -1030,6 +1067,14 @@ function edgeBox(){
   ctx.restore();
 }
 
+/* The word alone, no circle, in the quiet green the rule and the dashed line
+   use. It sits on the left between the dashed line and the score, aligned to the
+   same edge as the score beneath it. The tap target does not have to match the
+   ink, so the mark stays small while the thing you press stays comfortable, and
+   the arrow never sweeps past x 97 so it cannot be caught while aiming. */
+const FIELD_MENU = { x:28, fy: H - SCORE_BASE - SCORE_PX * NUMCAP - 13, r:24,
+                     act:function(){ scene = SC.MENU; } };
+const QUIET = "#007f00";
 function drawGame(){
   /* With the walls on the rule is the top of the box, corners and all; with them
      off it is a plain line across the screen, square as it always was. */
@@ -1063,7 +1108,10 @@ function drawGame(){
   drawNumber(high, 308, by, npx, "right");
   ctx.font = "700 " + npx + "px " + BARLOW;
   const hw = ctx.measureText(String(high)).width;
-  label("best", 308 - hw/2, by - npx * NUMCAP - 13, 15, "#00ff00", "center", 500);
+  /* One line for both, so menu and best sit on the same rule. */
+  const capY = by - npx * NUMCAP - 13;
+  label("best", 308 - hw/2, capY, 15, QUIET, "center", 500);
+  if (scene === SC.GAME) label("menu", 12, capY, 15, QUIET, "left", 500);
 }
 
 function drawOver(){
@@ -1073,7 +1121,7 @@ function drawOver(){
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
   slotLabel("A", "game\nover", 32, -3.3, 0.80);
-  ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.rw);
+  ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.r * RING_K);
   drawNumberMid(score, SLOT.B.x, SLOT.B.fy, 58, "center");
   const nb = score >= high && score > 0;
   /* The artwork has no room for this, so it sits under the whole group. */
@@ -1145,7 +1193,7 @@ function drawAbout(){
 
 function drawHiscore(){
   slotLabel("A", "high\nscore", 32, -4, 0.80);
-  ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.rw);
+  ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.r * RING_K);
   drawNumberMid(high, SLOT.B.x, SLOT.B.fy, 58, "center");
   drawMenu();
 }
@@ -1158,7 +1206,8 @@ function drawSettings(){
 }
 
 function drawPlayMenu(){
-  slotLabel("B", "play!", 57, 4.8);
+  /* A ring rather than a disc, so it reads as the heading and not a button. */
+  drawButton(slot("A", { fs:48, rot:4.8, label:"play!" }));
   drawMenu();
 }
 function drawReset(){
@@ -1202,7 +1251,7 @@ function dbgSample(ms, n){
   const r = cvs.getBoundingClientRect(), dp = window.devicePixelRatio || 1;
   const rw = rotated() ? r.height : r.width, rh = rotated() ? r.width : r.height;
   const exact = Math.abs(rw*dp - cvs.width) < 0.6 && Math.abs(rh*dp - cvs.height) < 0.6;
-  dbg.line2 = "steps " + dbg.steps.slice(0,5).join("/") + "  dpr " + dp +
+  dbg.line2 = "dpr " + dp + "  css " + rw.toFixed(2) + "x" + rh.toFixed(2) +
               "  buf " + cvs.width + "x" + cvs.height + (exact ? "  1:1" : "  RESAMPLED");
   dbg.t = []; dbg.steps = [0,0,0,0,0,0]; dbg.worst = 0;
 }
