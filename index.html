@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Frict</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Archivo:wght@100..900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Barlow:wght@400;700&display=swap">
 <style>
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
@@ -147,11 +147,11 @@ const store = {
    which reads as stutter even at a clean frame rate. */
 const ARROW_PATH = new Path2D("M-5.6 -35.2C-7.5 -49.2 -7.6 -49.5 -10.1 -50.0C-12.7 -50.5 -12.7 -50.6 -6.4 -57.4L-0.1 -64.3L6.3 -57.4C12.7 -50.6 12.7 -50.5 10.0 -50.2L7.3 -49.9L5.5 -35.4L3.7 -21.0L0.0 -21.0L-3.6 -21.0L-5.6 -35.2ZM3.4 -37.6C4.4 -45.2 5.7 -51.8 6.2 -52.1C6.8 -52.5 5.7 -54.4 3.6 -56.6L-0.0 -60.5L-3.6 -56.6C-5.6 -54.5 -6.8 -52.5 -6.2 -52.1C-5.7 -51.8 -4.5 -45.7 -3.6 -38.5C-1.6 -23.5 -1.4 -22.7 0.3 -23.2C1.0 -23.5 2.2 -28.8 3.4 -37.6Z");
 const ARROW_BASE = 21;
-/* Score numerals are set in Archivo Black. NUMCAP is its cap height as a
+/* Score numerals are set in Barlow. NUMCAP is its cap height as a
    fraction of the font size, used to centre digits inside the score rings. */
-const ARCHIVO = '"Archivo",Helvetica,Arial,sans-serif';
+const BARLOW  = '"Barlow",Helvetica,Arial,sans-serif';
 const FREDOKA = '"Fredoka","Trebuchet MS",sans-serif';
-const NUMCAP  = 0.72;   // Archivo cap height as a fraction of font size
+const NUMCAP  = 0.71;   // Barlow digit cap height, measured from the rendered face
 
 let actx = null; const BUF = {};
 /* Two complete sets of the three sounds. Original is the bundle's own; bubble is
@@ -170,7 +170,10 @@ function clipKey(name){
 function setScheme(){
   scheme = scheme ? 0 : 1;
   store.set("scheme", scheme);
-  play("pop", 0.55);
+  /* The tap of whichever set was just chosen, and only that: the button is
+     marked quiet so the usual menu click does not fire underneath it in the
+     set being switched away from. */
+  play("tap", 0.5);
 }
 
 function audioInit(){
@@ -350,12 +353,39 @@ const MENUS = {};
 /* Circle geometry is in the original 320x480 space; y is scaled by V() at load,
    while r and fs are canvas pixels. A grown button keeps its left and top edges
    by shifting its centre: dy = dr / VS. */
+/* Centres and radii measured off mainmenu.png in the original bundle, then
+   shifted down as a group to sit in the taller field. Widths are untouched
+   because both are 320 across. r is the outer edge, dr the filled disc inside
+   it, rw the ring's thickness. The @ page is gone and the i is drawn like the
+   question mark rather than filled. */
+/* All four menus in the bundle are built from the same handful of circles, in
+   the same places. Measured once off the artwork and shared, so nothing shifts
+   as you move between screens. Positions are field units, already carrying the
+   62 the whole composition moves down to sit in the taller field. r is the outer
+   edge, dr the filled disc where a slot has one, rw the ring's thickness. */
+const SLOT = {
+  A: { x: 95.5, fy:174.5, r:70.5, dr:54.5, rw:8  },   // top left
+  F: { x:202,   fy:164,   r:38,            rw:9  },   // small, top right
+  B: { x:200,   fy:288,   r:91,   dr:72,   rw:12 },   // the big one
+  E: { x: 94.5, fy:332,   r:26.5,          rw:6  },   // small, tucked left
+  C: { x:117,   fy:425,   r:71,   dr:55,   rw:8  },   // bottom left
+  /* D sits two units inside both B and C rather than exactly tangent to them,
+     which is the difference between touching and looking like a hairline gap. */
+  D: { x:225.5, fy:414.5, r:40,            rw:8  }    // bottom right
+};
+function slot(k, o){ return Object.assign({}, SLOT[k], o); }
+/* The same circle drawn as a label rather than a button. */
+function slotLabel(k, text, fs, rot, lh){
+  drawButton(slot(k, { fs:fs, rot:rot, lh:lh, label:text, solid:true }));
+}
+
 MENUS[SC.MENU] = [
-  { x:176, y:175.5, r:64, fs:34, label:"play!", big:true, act:function(){ scene = SC.PLAYMENU; } },
-  { x: 82, y: 80,   r:44, fs:16, label:"high\nscore",     act:function(){ scene = SC.HISCORE; } },
-  { x:238, y: 84,   r:30, fs:30, label:"?",                act:function(){ tutStep=0; scene = SC.TUT; } },
-  { x: 52, y:166,   r:24, fs:22, label:"i",                act:function(){ scene = SC.ABOUT; } },
-  { x:102, y:272,   r:46, fs:16, label:"settings",         act:function(){ scene = SC.SETTINGS; } }
+  slot("B", { fs:57, label:"play!",      rot:3.3,  solid:true, act:function(){ scene = SC.PLAYMENU; } }),
+  slot("A", { fs:32, label:"high\nscore", rot:-4, lh:0.80, solid:true,
+              act:function(){ scene = SC.HISCORE; } }),
+  slot("C", { fs:27, label:"settings",   rot:-6.1, solid:true, act:function(){ scene = SC.SETTINGS; } }),
+  slot("E", { fs:26, label:"i",          rot:-10.3, act:function(){ scene = SC.ABOUT; } }),
+  slot("D", { fs:43, label:"?",          rot:5.5,   act:function(){ tutStep=0; scene = SC.TUT; } })
 ];
 MENUS[SC.PLAYMENU] = [
   { x:150, y:118, r:52, fs:20, label:"new\ngame", big:true, act:function(){ newGame(); } },
@@ -363,23 +393,24 @@ MENUS[SC.PLAYMENU] = [
   { x:212, y:272, r:34, fs:14, label:"back",                act:function(){ scene = SC.MENU; } }
 ];
 MENUS[SC.ABOUT]   = [ { x: 40, y:440, r:26, fs:12, label:"menu", act:function(){ scene = SC.MENU; } } ];
+/* Reset moved to Settings, which is where the original kept it. */
 MENUS[SC.HISCORE] = [
-  { x:160, y:300, r:40, fs:16, label:"reset", act:function(){ high = 0; highDue = true; } },
-  { x:250, y:378, r:32, fs:14, label:"back",  act:function(){ scene = SC.MENU; } }
+  slot("D", { fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
 ];
 MENUS[SC.SETTINGS] = [
-  { x:160, y:170, r:58, label:"", sound:true,
-    act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } },
-  /* dead centre on the settings bubble of the main menu, so the two line up */
-  { x:102, y:272, r:38, fs:14, label:"back",     act:function(){ scene = SC.MENU; } },
-  { x:218, y:272, r:38, fs:11, label:"sound", toggle:true,
-    on:   function(){ return scheme === 1; },
-    text: function(){ return "sound\n" + SCHEMES[scheme][0]; },
-    act:  function(){ setScheme(); } },
-  { x:258, y:208, r:34, fs:12, label:"edges", toggle:true,
-    on:   function(){ return wallsOn; },
-    text: function(){ return wallsOn ? "edges\non" : "edges\noff"; },
-    act:  function(){ wallsOn = !wallsOn; wallsSet = wallsOn; store.set("walls", wallsOn); } }
+  slot("A", { fs:24, lh:0.86, rot:-4.9, label:"reset\nhigh\nscore",
+              act:function(){ high = 0; highDue = true; } }),
+  slot("B", { sound:true, label:"",
+              act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } }),
+  slot("F", { fs:11, toggle:true, quiet:true,
+              on:   function(){ return scheme === 1; },
+              text: function(){ return "sound\n" + SCHEMES[scheme][0]; },
+              act:  function(){ setScheme(); } }),
+  slot("E", { fs:11, toggle:true,
+              on:   function(){ return wallsOn; },
+              text: function(){ return wallsOn ? "edges\non" : "edges\noff"; },
+              act:  function(){ wallsOn = !wallsOn; wallsSet = wallsOn; store.set("walls", wallsOn); } }),
+  slot("D", { fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
 ];
 MENUS[SC.TUT] = [
   { x: 40, y:440, r:26, fs:24, label:"\u2039", act:function(){ tutStep = Math.max(0, tutStep-1); } },
@@ -387,8 +418,8 @@ MENUS[SC.TUT] = [
   { x:280, y: 45, r:23, fs:11, label:"menu",    act:function(){ scene = SC.MENU; } }
 ];
 MENUS[SC.OVER] = [
-  { x:104, y:330, r:46, label:"replay", big:true, act:function(){ newGame(); } },
-  { x:216, y:352, r:34, label:"menu",             act:function(){ scene = SC.MENU; } }
+  slot("C", { fs:32, label:"replay", rot:-8.2, act:function(){ newGame(); } }),
+  slot("D", { fs:21, label:"menu",   rot:2.0,  act:function(){ scene = SC.MENU; } })
 ];
 
 const TUT_TEXT = [
@@ -531,9 +562,13 @@ function canvasPoint(ev){
   }
   return { x: (dx + wpx/2) / wpx * W, y: (dy + hpx/2) / hpx * H };
 }
+/* Most buttons still carry the original 320x480 design's y and get scaled; the
+   main menu carries its own, because its arrangement is measured off the
+   bundle's artwork and has to sit in the taller field on its own terms. */
+function btnY(b){ return b.fy === undefined ? V(b.y) : b.fy; }
 function menuHit(p){
   const list = MENUS[scene]; if (!list) return null;
-  for (const b of list) if (Math.hypot(p.x-b.x, p.y-V(b.y)) <= b.r) return b;
+  for (const b of list) if (Math.hypot(p.x-b.x, p.y-btnY(b)) <= b.r) return b;
   return null;
 }
 function press(p){
@@ -546,7 +581,7 @@ function press(p){
   /* A row takes the press before the round buttons get a look, and takes it
      silently, because a drag is not a button press. */
   /* the sound button makes its own noise, or none, so it is skipped here */
-  if (p) { const b = menuHit(p); if (b) { if (!b.sound) play("tap", 0.5); b.act(); } }
+  if (p) { const b = menuHit(p); if (b) { if (!b.sound && !b.quiet) play("tap", 0.5); b.act(); } }
 }
 function release(){
   if (scene === SC.GAME && aiming && ball && ball.state === "aim") {
@@ -809,7 +844,7 @@ function drawBall(x, y, r, type, hits, spin){
 }
 /* x,y is the baseline. drawNumberMid centres the digits on y instead. */
 function drawNumber(n, x, y, px, align){
-  ctx.font = "900 " + px + "px " + ARCHIVO;
+  ctx.font = "700 " + px + "px " + BARLOW;
   ctx.textAlign = align || "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#00ff00";
@@ -823,19 +858,19 @@ function ring(x, y, r, lw){
   ctx.fillStyle = "#000"; ctx.fill();
   ctx.lineWidth = lw; ctx.strokeStyle = "#00ff00"; ctx.stroke();
 }
-function label(text, x, y, size, color, align, weight, face){
+function label(text, x, y, size, color, align, weight, face, lhm){
   ctx.font = (weight||500) + " " + size + "px " + (face || FREDOKA);
   ctx.textAlign = align || "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = color || "#00ff00";
   const lines = String(text).split("\n");
-  const lh = size * 1.02;
+  const lh = size * (lhm || 1.02);
   for (let i=0;i<lines.length;i++) ctx.fillText(lines[i], x, y + (i - (lines.length-1)/2) * lh);
 }
-/* Body copy is Archivo at weight 300, drawn straight with no width tricks. */
-const BODYWT = 300;
+/* Body copy is Barlow at 400, its regular. */
+const BODYWT = 400;
 function body(text, x, y, size, maxw, color){
-  ctx.font = BODYWT + " " + size + "px " + ARCHIVO;
+  ctx.font = BODYWT + " " + size + "px " + BARLOW;
   ctx.textAlign = "left"; ctx.textBaseline = "top";
   ctx.fillStyle = color || "#d8f5d8";
   const words = String(text).split(" ");
@@ -848,43 +883,64 @@ function body(text, x, y, size, maxw, color){
   if (line) { ctx.fillText(line, x, yy); yy += size*1.42; }
   return yy;
 }
+/* The speaker icon, from a 24 by 24 drawing. The speaker itself is its own path
+   and is drawn in both states, so turning sound on and off changes only what
+   sits to its right: nothing about the speaker can shift between the two. */
+const ICON_SPEAKER = new Path2D("M11.38,4.08a1,1,0,0,0-1.09.21L6.59,8H4a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2H6.59l3.7,3.71A1,1,0,0,0,11,20a.84.84,0,0,0,.38-.08A1,1,0,0,0,12,19V5A1,1,0,0,0,11.38,4.08Z");
+const ICON_WAVES = new Path2D("M18.36,19.36a1,1,0,0,1-.7-.29,1,1,0,0,1,0-1.41,8,8,0,0,0,0-11.32,1,1,0,0,1,1.41-1.41,10,10,0,0,1,0,14.14A1,1,0,0,1,18.36,19.36Z M15.54,16.54a1,1,0,0,1-.71-.3,1,1,0,0,1,0-1.41,4,4,0,0,0,0-5.66,1,1,0,0,1,1.41-1.41,6,6,0,0,1,0,8.48A1,1,0,0,1,15.54,16.54Z");
+const ICON_MUTE = new Path2D("M16,15.5a1,1,0,0,1-.71-.29,1,1,0,0,1,0-1.42l5-5a1,1,0,0,1,1.42,1.42l-5,5A1,1,0,0,1,16,15.5Z M21,15.5a1,1,0,0,1-.71-.29l-5-5a1,1,0,0,1,1.42-1.42l5,5a1,1,0,0,1,0,1.42A1,1,0,0,1,21,15.5Z");
+const ICON_SCALE = 0.045;    // of the button's radius, so it travels with it
+const ICON_TILT  = -7;       // degrees, counter-clockwise
+
 function drawButton(b){
+  const by = btnY(b);
   /* A toggle reads as filled when it is on: green disc, black text, the inverse
      of every other bubble on the screen. */
   if (b.toggle) {
     const on = b.on();
-    ctx.beginPath(); ctx.arc(b.x, V(b.y), b.r - 2.5, 0, Math.PI*2);
+    ctx.beginPath(); ctx.arc(b.x, by, b.r - 2.5, 0, Math.PI*2);
     ctx.fillStyle = on ? "#00ff00" : "#000000"; ctx.fill();
     ctx.lineWidth = 5; ctx.strokeStyle = "#00ff00"; ctx.stroke();
-    label(b.text(), b.x, V(b.y), b.fs || 12, on ? "#000000" : "#00ff00", "center", 500);
+    label(b.text(), b.x, by, b.fs || 12, on ? "#000000" : "#00ff00", "center", 500);
     return;
   }
-  if (b.sound) {
-    ring(b.x, V(b.y), b.r, 5);
-    /* The cone spans -18..+6 and the waves reach +33, so the group's own centre
-       sits about 8px right of the origin. Shift left by that to centre it. */
+  /* The main menu's three big buttons: a filled disc with its own ring standing
+     off it, which is how the original drew them. */
+  if (b.solid) {
+    const rw = b.rw || 8;
+    ctx.fillStyle = "#00ff00";
+    ctx.beginPath(); ctx.arc(b.x, by, b.dr, 0, Math.PI*2); ctx.fill();
+    ctx.lineWidth = rw; ctx.strokeStyle = "#00ff00";
+    ctx.beginPath(); ctx.arc(b.x, by, b.r - rw/2, 0, Math.PI*2); ctx.stroke();
+    /* The original set each of these labels on its own slight angle, measured
+       here off the artwork rather than guessed. */
     ctx.save();
-    ctx.translate(b.x - 8, V(b.y));
-    ctx.strokeStyle = "#00ff00"; ctx.fillStyle = "#00ff00"; ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-18, -8); ctx.lineTo(-6, -8); ctx.lineTo(6, -20);
-    ctx.lineTo(6, 20); ctx.lineTo(-6, 8); ctx.lineTo(-18, 8);
-    ctx.closePath(); ctx.fill();
-    if (soundOn) {
-      for (let i=1;i<=2;i++){
-        ctx.beginPath(); ctx.arc(8, 0, 8+i*8, -Math.PI/3, Math.PI/3); ctx.stroke();
-      }
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(16, -11); ctx.lineTo(32, 11);
-      ctx.moveTo(32, -11); ctx.lineTo(16, 11);
-      ctx.stroke();
-    }
+    ctx.translate(b.x, by);
+    if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
+    label(b.label, 0, 0, b.fs || 14, "#000000", "center", 600, undefined, b.lh);
     ctx.restore();
     return;
   }
-  ring(b.x, V(b.y), b.r, 5);
-  label(b.label, b.x, V(b.y), b.fs || 14, "#00ff00", "center", b.big ? 600 : 500);
+  if (b.sound) {
+    ring(b.x, by, b.r, b.rw || 5);
+    ctx.save();
+    ctx.translate(b.x, by);
+    ctx.rotate(ICON_TILT * Math.PI / 180);
+    const s = b.r * ICON_SCALE;
+    ctx.scale(s, s);
+    ctx.translate(-12, -12);                  // the icon's own 24x24 centre
+    ctx.fillStyle = "#00ff00";
+    ctx.fill(ICON_SPEAKER);
+    ctx.fill(soundOn ? ICON_WAVES : ICON_MUTE);
+    ctx.restore();
+    return;
+  }
+  ring(b.x, by, b.r, b.rw || 5);
+  ctx.save();
+  ctx.translate(b.x, by);
+  if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
+  label(b.label, 0, 0, b.fs || 14, "#00ff00", "center", b.big ? 600 : 500, undefined, b.lh);
+  ctx.restore();
 }
 function drawMenu(){
   const list = MENUS[scene]; if (!list) return;
@@ -919,18 +975,39 @@ function baseline(){
    the edge of the canvas and lose half of it. The sides start level with the top
    of the rule rather than at the top of the screen, so the corner is flush and
    neither line runs past the other, and a fourth line closes the bottom. */
-function edgeWalls(){
-  if (!wallsOn) return;
-  const h = hair();
-  ctx.fillStyle = "#007f00";
-  ctx.fillRect(0,     TOP, h, H - TOP);
-  ctx.fillRect(W - h, TOP, h, H - TOP);
-  ctx.fillRect(0, H - h, W, h);
+/* A phone's display has rounded corners and the canvas runs full bleed into
+   them, so a square box loses its bottom corners to the curve and reads as
+   broken. Curving the bottom two lets the line follow the screen instead of
+   being cut by it; 34 units is roughly a recent iPhone's corner radius scaled
+   into this field, and on a square display it simply looks deliberate. The top
+   two get half a ball's radius, which is small enough that no ball can ever
+   reach into the curve, so it costs the playfield nothing. */
+const EDGE_R  = 34;
+const EDGE_RT = SHOT_R / 2;
+/* The bottom line sits one line width up from the very edge rather than on it. */
+function edgeBox(){
+  const h = hair(), k = h/2, t = TOP + k, b = H - k - h, R = EDGE_R, r = EDGE_RT;
+  ctx.save();
+  ctx.strokeStyle = "#007f00"; ctx.lineWidth = h;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(k, t + r);
+  ctx.quadraticCurveTo(k, t, k + r, t);
+  ctx.lineTo(W - k - r, t);
+  ctx.quadraticCurveTo(W - k, t, W - k, t + r);
+  ctx.lineTo(W - k, b - R);
+  ctx.quadraticCurveTo(W - k, b, W - k - R, b);
+  ctx.lineTo(k + R, b);
+  ctx.quadraticCurveTo(k, b, k, b - R);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawGame(){
-  edgeWalls();
-  topRule();
+  /* With the walls on the rule is the top of the box, corners and all; with them
+     off it is a plain line across the screen, square as it always was. */
+  if (wallsOn) edgeBox(); else topRule();
   baseline();
   for (const s of statics) drawBall(s.x, s.y, s.r, s.type, s.hits);
 
@@ -958,7 +1035,7 @@ function drawGame(){
   const npx = SCORE_PX, by = H - SCORE_BASE;
   drawNumber(score, 12, by, npx, "left");
   drawNumber(high, 308, by, npx, "right");
-  ctx.font = "900 " + npx + "px " + ARCHIVO;
+  ctx.font = "700 " + npx + "px " + BARLOW;
   const hw = ctx.measureText(String(high)).width;
   label("best", 308 - hw/2, by - npx * NUMCAP - 13, 15, "#00ff00", "center", 500);
 }
@@ -969,19 +1046,21 @@ function drawOver(){
   ctx.fillStyle = "rgba(0,0,0," + (0.91 + overFlash*0.06) + ")";
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
-  label("game\nover", 160, V(86), 36, "#00ff00", "center", 600);
-  ring(160, V(196), 62, 5);
-  drawNumberMid(score, 160, V(196), 58, "center");
+  slotLabel("A", "game\nover", 32, -3.3, 0.80);
+  ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.rw);
+  drawNumberMid(score, SLOT.B.x, SLOT.B.fy, 58, "center");
   const nb = score >= high && score > 0;
-  label(nb ? "new best!" : "best: " + high, 160, V(268), nb ? 22 : 19, "#00ff00", "center", 500);
+  /* The artwork has no room for this, so it sits under the whole group. */
+  label(nb ? "new best!" : "best: " + high, 160, 545, nb ? 24 : 21, "#00ff00", "center", 500);
   drawMenu();
 }
 
 function drawTitle(){
   drawMenu();
-  wordmark(160, V(356), 46);
+  /* Bottom right, with the credit under it, the side the original used. */
+  label("frict", 294, 612, 54, "#00ff00", "right", 600);
   ctx.save(); ctx.globalAlpha = 0.55;
-  label("sjimpansee · 2009", 160, V(388), 11, "#007f00", "center", 400);
+  label("sjimpansee · 2009", 294, 648, 12, "#007f00", "right", 400);
   ctx.restore();
 }
 
@@ -1039,15 +1118,16 @@ function drawAbout(){
 }
 
 function drawHiscore(){
-  label("high\nscore", 160, V(96), 30, "#00ff00", "center", 600);
-  ring(160, V(210), 68, 5);
-  drawNumberMid(high, 160, V(210), 64, "center");
+  slotLabel("A", "high\nscore", 32, -4, 0.80);
+  ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.rw);
+  drawNumberMid(high, SLOT.B.x, SLOT.B.fy, 58, "center");
   drawMenu();
 }
 
+/* The heading is the filled circle, the way the original had it, and the speaker
+   says whether sound is on without needing a caption under it. */
 function drawSettings(){
-  label("settings", 160, V(76), 28, "#00ff00", "center", 600);
-  label(soundOn ? "sound on" : "sound off", 160, V(225), 15, "#007f00", "center", 500);
+  slotLabel("C", "settings", 27, -6.1);
   drawMenu();
 }
 
@@ -1132,9 +1212,8 @@ function start(saved){
   /* A face used only by canvas fillText is not always fetched, because nothing
      in the DOM references it. Ask for it explicitly. */
   if (document.fonts && document.fonts.load) {
-    document.fonts.load('900 42px "Archivo"');
-    document.fonts.load('300 18px "Archivo"');
-    document.fonts.load('400 13px "Archivo"');
+    document.fonts.load('700 42px "Barlow"');
+    document.fonts.load('400 18px "Barlow"');
     document.fonts.load('600 40px "Fredoka"');
   }
   requestAnimationFrame(frame);
