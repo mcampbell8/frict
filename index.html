@@ -223,7 +223,6 @@ let wallsSet = store.get("walls", null);
 let wallsOn = (wallsSet === null) ? wallsDefault() : !!wallsSet;
 function play(name, vol, delay){
   const key = clipKey(name);
-  if (replaying) return;
   if (!soundOn || !actx || !BUF[key]) return;
   /* A suspended context does not advance its own clock, so anything started
      against it sits there and fires whenever the context next wakes, which is
@@ -368,7 +367,7 @@ setTimeout(auditSize, 1200);
 /* H is constant now, so a saved game never needs rescaling on load. */
 
 /* ---------------------------------------------------------------- scenes */
-const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7, RESET:8 };
+const SC = { MENU:0, PLAYMENU:1, TUT:2, ABOUT:3, SETTINGS:4, HISCORE:5, GAME:6, OVER:7, CONFIRM:8, PAUSE:9 };
 let scene = SC.MENU;
 let tutStep = 0;
 
@@ -397,16 +396,78 @@ const SLOT = {
   D: { x:225.5, fy:414.5, r:40            }    // bottom right
 };
 function slot(k, o){ return Object.assign({}, SLOT[k], o); }
+
+/* Every piece of set text on a menu carries an id, and this is where a nudge
+   against that id lives: dx and dy in field units from where the circle puts
+   it, rot in degrees, fs in pixels, lh as a multiple of the size. The shipped
+   game has an empty table and draws the numbers written in the code. The
+   calibration build fills it from a panel, which is how these get settled
+   without a round trip.
+
+   The registry below is what that panel lists. It is a handful of strings and
+   it keeps the ids honest, so it lives here with them rather than in the rig. */
+const LAY = {};
+function layOf(id){ return (id && LAY[id]) || null; }
+/* What each id was set at in the code, recorded the first time it is drawn, so
+   the panel can show a starting point and put one back. */
+const LAY_DEF = {};
+/* Settled on the layout panel in the calibration build and written back here. A
+   size or an angle replaced the number in the button itself; a nudge has nothing
+   to replace, because the circle is what places the text, so it lives here. The
+   panel overrides these while it is being used and puts them back when it is
+   reset. */
+Object.assign(LAY, {
+  "confirm.reset":   { dy: 3 },
+  "confirm.abandon": { dy: 3 },
+  "confirm.restart": { dx: 1 },
+  "confirm.yes":     { dy: 1 },
+  "over.heading":    { dy: 3.5 },
+  "pause.main":      { dy: -1 }
+});
+const LAY_ITEMS = [
+  ["menu.play",       "MENU",     "play!"],
+  ["menu.high",       "MENU",     "high score"],
+  ["menu.settings",   "MENU",     "settings"],
+  ["menu.info",       "MENU",     "i"],
+  ["menu.help",       "MENU",     "?"],
+  ["title.mark",      "MENU",     "frict"],
+  ["title.sub",       "MENU",     "forever"],
+  ["play.heading",    "PLAYMENU", "play! heading"],
+  ["play.resume",     "PLAYMENU", "resume"],
+  ["play.new",        "PLAYMENU", "new game"],
+  ["play.back",       "PLAYMENU", "back"],
+  ["confirm.reset",   "CONFIRM",  "reset?"],
+  ["confirm.abandon", "CONFIRM",  "abandon round?"],
+  ["confirm.restart", "CONFIRM",  "restart?"],
+  ["confirm.no",      "CONFIRM",  "no"],
+  ["confirm.yes",     "CONFIRM",  "yes"],
+  ["pause.heading",   "PAUSE",    "pause"],
+  ["pause.resume",    "PAUSE",    "resume"],
+  ["pause.main",      "PAUSE",    "main menu"],
+  ["settings.heading","SETTINGS", "settings heading"],
+  ["settings.reset",  "SETTINGS", "reset high score"],
+  ["settings.speaker","SETTINGS", "speaker"],
+  ["settings.sounds", "SETTINGS", "sound toggle"],
+  ["settings.edges",  "SETTINGS", "edges toggle"],
+  ["settings.back",   "SETTINGS", "back"],
+  ["hiscore.heading", "HISCORE",  "high score heading"],
+  ["hiscore.back",    "HISCORE",  "back"],
+  ["over.heading",    "OVER",     "game over"],
+  ["over.replay",     "OVER",     "replay"],
+  ["over.menu",       "OVER",     "menu"],
+  ["about.menu",      "ABOUT",    "menu"],
+  ["tut.menu",        "TUT",      "menu"]
+];
 /* The same circle drawn as a label rather than a button. */
-function slotLabel(k, text, fs, rot, lh){
-  drawButton(slot(k, { fs:fs, rot:rot, lh:lh, label:text, solid:true }));
+function slotLabel(id, k, text, fs, rot, lh){
+  drawButton(slot(k, { id:id, fs:fs, rot:rot, lh:lh, label:text, solid:true }));
 }
 
 /* The wordmark, bottom right, the side the original used. It is the same block
    in the same place on every screen that carries it, so it has to be settled
    here, before the menus that line themselves up with it. */
 const TITLE_R = 294, TITLE_Y = 612, TITLE_PX = 54;
-const SUBTITLE = "reconstructed";
+const SUBTITLE = "forever";
 const SUB_GAP = 6;               // between the mark's ink and the subtitle's
 /* Both lines are set on their middles, so the ink of a line runs from about a
    third of its size above its middle to the same fraction below. */
@@ -415,61 +476,86 @@ const TITLE_CAP = 0.35;
 MENUS[SC.MENU] = [
   /* Nothing to resume means the play menu has one live button on it, so skip
      it and start the round. */
-  slot("B", { fs:57, label:"play!", rot:3.3, solid:true,
+  slot("B", { id:"menu.play", fs:57, label:"play!", rot:3.3, solid:true,
               act:function(){ if (resumable()) scene = SC.PLAYMENU; else newGame(); } }),
-  slot("A", { fs:32, label:"high\nscore", rot:-4, lh:0.80, solid:true,
+  slot("A", { id:"menu.high", fs:32, label:"high\nscore", rot:-6.5, lh:0.80, solid:true,
               act:function(){ scene = SC.HISCORE; } }),
-  slot("C", { fs:27, label:"settings",   rot:-6.1, solid:true, act:function(){ scene = SC.SETTINGS; } }),
-  slot("E", { fs:26, label:"i",          rot:-10.3, act:function(){ scene = SC.ABOUT; } }),
-  slot("D", { fs:43, label:"?",          rot:5.5,   act:function(){ tutStep=0; scene = SC.TUT; } })
+  slot("C", { id:"menu.settings", fs:27, label:"settings", rot:-6.1, solid:true, act:function(){ scene = SC.SETTINGS; } }),
+  slot("E", { id:"menu.info", fs:26, label:"i", rot:-10.3, act:function(){ scene = SC.ABOUT; } }),
+  slot("D", { id:"menu.help", fs:43, label:"?", rot:5.5, act:function(){ tutStep=0; scene = SC.TUT; } })
 ];
 /* Resume sits where play! was, so a second tap in the same place picks the
    saved round back up rather than throwing it away. New game moves down to the
    circle a thumb has to travel to. */
 MENUS[SC.PLAYMENU] = [
-  slot("B", { fs:38, rot:-8.9, label:"resume", solid:true,
+  slot("B", { id:"play.resume", fs:38, rot:8.9, label:"resume", solid:true,
               act:function(){ if (resumable()) { auditSize(); scene = SC.GAME; } } }),
-  slot("C", { fs:31, lh:0.86, rot:-7.1, label:"new\ngame", solid:true,
-              act:function(){ newGame(); } }),
-  slot("D", { fs:21, rot:3.4, label:"back", act:function(){ scene = SC.MENU; } })
+  /* Starting over throws away a round that is still going, so it asks first. */
+  slot("C", { id:"play.new", fs:31, lh:0.86, rot:-7.1, label:"new\ngame", solid:true,
+              act:function(){ ask("confirm.abandon", "abandon\nround?", 33, -7.6, newGame, SC.PLAYMENU, false); } }),
+  slot("D", { id:"play.back", fs:21, rot:3.4, label:"back", act:function(){ scene = SC.MENU; } })
 ];
-/* Reset asks first, on its own screen, the way the original did. */
-MENUS[SC.RESET] = [
-  slot("A", { fs:34, rot:-3.6, label:"no",  act:function(){ scene = SC.SETTINGS; } }),
-  slot("C", { fs:34, rot:-9.3, label:"yes",
-              act:function(){ high = 0; highDue = true; scene = SC.SETTINGS; } })
+/* One screen for every question the game has to ask, the way the original asked
+   before a reset. The prompt goes in the big circle and the answer comes back
+   through a stored action, so reset, abandon and restart all look the same and
+   all cancel back to wherever they were asked from. */
+/* Each question carries its own id, because they are different lengths on
+   different numbers of lines and one position does not suit all three. */
+let askId = "confirm.reset", askText = "reset?", askFs = 46, askRot = 2.7;
+let askYes = null, askBack = SC.MENU, askOverField = false;
+function ask(id, text, fs, rot, yes, back, overField){
+  askId = id; askText = text; askFs = fs; askRot = rot; askYes = yes;
+  askBack = back; askOverField = !!overField;
+  scene = SC.CONFIRM;
+}
+MENUS[SC.CONFIRM] = [
+  slot("A", { id:"confirm.no",  fs:53, rot:-3.6, label:"no",  act:function(){ scene = askBack; } }),
+  slot("C", { id:"confirm.yes", fs:51, rot:4.5, label:"yes", act:function(){ if (askYes) askYes(); } })
+];
+/* The same three circles as the reset screen, with the heading in the top one.
+   Nothing happens when you press the heading; it is a label that happens to be
+   round. */
+MENUS[SC.PAUSE] = [
+  slot("B", { id:"pause.resume", fs:38, rot:8.9, label:"resume", solid:true,
+              act:function(){ scene = SC.GAME; } }),
+  slot("C", { id:"pause.main", fs:32, lh:0.86, rot:-7.1, label:"main\nmenu", solid:true,
+              act:function(){ scene = SC.MENU; } }),
+  slot("D", { restart:true,
+              act:function(){ ask("confirm.restart", "restart?", 37, 2.7, newGame, SC.PAUSE, true); } })
 ];
 /* Sits on the far side of the screen from the wordmark, on its centre line, so
    the bottom of the page reads as one row. */
-MENUS[SC.ABOUT]   = [ { x: 40, fy: function(){ return titleM().mid; }, r:26, fs:12,
+MENUS[SC.ABOUT]   = [ { id:"about.menu", x: 40, fy: function(){ return titleM().mid; }, r:26, fs:12,
                         label:"menu", act:function(){ scene = SC.MENU; } } ];
 /* Reset moved to Settings, which is where the original kept it. */
 MENUS[SC.HISCORE] = [
-  slot("D", { fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
+  slot("D", { id:"hiscore.back", fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
 ];
 MENUS[SC.SETTINGS] = [
-  slot("A", { fs:24, lh:0.86, rot:-4.9, label:"reset\nhigh\nscore",
-              act:function(){ scene = SC.RESET; } }),
-  slot("B", { sound:true, label:"",
+  slot("A", { id:"settings.reset", fs:27, lh:0.96, rot:-4.9, label:"reset\nhigh\nscore",
+              act:function(){ ask("confirm.reset", "reset?", 46, 2.7, function(){
+                       high = 0; highDue = true; scene = SC.SETTINGS;
+                     }, SC.SETTINGS, false); } }),
+  slot("B", { id:"settings.speaker", sound:true, label:"",
               act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } }),
-  slot("F", { fs:13, lh:0.92, toggle:true, quiet:true,
+  slot("F", { id:"settings.sounds", fs:13, lh:1.10, rot:3.2, toggle:true, quiet:true,
               on:   function(){ return scheme === 1; },
               text: function(){ return (scheme === 1 ? "bubble" : "original") + "\nsounds"; },
               act:  function(){ setScheme(); } }),
-  slot("E", { fs:11, lh:0.92, toggle:true,
+  slot("E", { id:"settings.edges", fs:11, lh:1.16, rot:-2, toggle:true,
               on:   function(){ return wallsOn; },
               text: function(){ return wallsOn ? "edges\non" : "edges\noff"; },
               act:  function(){ wallsOn = !wallsOn; wallsSet = wallsOn; store.set("walls", wallsOn); } }),
-  slot("D", { fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
+  slot("D", { id:"settings.back", fs:21, label:"back", rot:3.4, act:function(){ scene = SC.MENU; } })
 ];
 MENUS[SC.TUT] = [
   { x: 40, y:440, r:26, chev:-1, act:function(){ tutStep = Math.max(0, tutStep-1); } },
   { x:280, y:440, r:26, chev: 1, act:function(){ if (tutStep>=4) scene = SC.MENU; else tutStep++; } },
-  { x:280, y: 45, r:23, fs:11, label:"menu", act:function(){ scene = SC.MENU; } }
+  { id:"tut.menu", x:280, y: 45, r:23, fs:11, label:"menu", act:function(){ scene = SC.MENU; } }
 ];
 MENUS[SC.OVER] = [
-  slot("C", { fs:32, label:"replay", rot:-8.2, act:function(){ newGame(); } }),
-  slot("D", { fs:21, label:"menu",   rot:2.0,  act:function(){ scene = SC.MENU; } })
+  slot("C", { id:"over.replay", fs:32, label:"replay", rot:5.1, act:function(){ newGame(); } }),
+  slot("D", { id:"over.menu", fs:21, label:"menu", rot:-5.1, act:function(){ scene = SC.MENU; } })
 ];
 
 const TUT_TEXT = [
@@ -479,7 +565,7 @@ const TUT_TEXT = [
   ["SCORE",       ["To score points, remove balls from the playfield by hitting them twice."]],
   ["BONUS BALLS", ["Double ball: every ball removed by this ball adds 2 to your score.",
                    "Triple ball: every ball removed by this ball adds 3 to your score.",
-                   "The razor: this ball removes everything in its path."]]
+                   "Razor: this ball removes everything in its path."]]
 ];
 
 /* ---------------------------------------------------------------- state */
@@ -535,7 +621,7 @@ function makeBall(type){
            type: type, state:"aim", spin:0, pspin:0, spinVel:0 };
   armed = false;
 }
-function readyBall(){ dealType(); makeBall(nextType); }
+function readyBall(){ endReplay(); dealType(); makeBall(nextType); }
 /* GameDirector in the original had saveGame and isCurrentGameResumable, so a
    round survived leaving the app. This does the same through localStorage. */
 /* localStorage is synchronous and can block for tens of milliseconds. These
@@ -577,27 +663,27 @@ document.addEventListener("visibilitychange", function(){
   if (actx && actx.state === "suspended") { try { actx.resume(); } catch(e){} }
   auditSize();
 });
-/* Run the shot forward with nothing drawn and no sound until the turn ends,
-   either with the next ball waiting or with the round over. The loop mirrors
-   stepWorld: the parts it leaves out are the score popups and the flash, which
-   are there to be watched and there is nobody watching. */
-let replaying = false;
-function replayFlight(){
-  replaying = true;
-  let guard = 0;
-  while (guard++ < 120 * 90) {
-    if (!ball) break;                  // lost, and endRound has already run
-    if (ball.state === "aim") break;   // the turn finished, next ball is up
-    if (dying > 0) { dying -= STEP; if (dying <= 0) { endRound(); break; } }
-    for (const s of statics) if (s.cool > 0) s.cool -= STEP;
-    stepBall(dying > 0 ? STEP * DEATH_SLOWMO : STEP);
-  }
-  replaying = false;
-  dying = 0; overFlash = 0; pts = [];
-  /* Whatever it came to is now the position of record, so the same shot cannot
-     be replayed a second time. */
-  saveDue = true;
-  flushSave();
+/* The saved shot is not resolved on load; it is played. The ball goes back on
+   the launch point with the arrow at the angle it was fired at, holds there long
+   enough to be read, and then fires itself and runs at normal speed with its own
+   sound. You watch the shot you took rather than arriving at its outcome. Input
+   is ignored until the turn is over, because the shot is already decided and
+   there is nothing left to do about it. */
+const REPLAY_HOLD = 0.5;     // seconds the arrow is held before it fires
+let locked = false;          // the saved shot is playing; the field is not yours
+let replayHold = 0;
+let pendingLaunch = null;
+function fireSaved(){
+  ball.vx = pendingLaunch.vx; ball.vy = pendingLaunch.vy;
+  ball.state = "fly"; armed = false;
+  pendingLaunch = null;
+}
+/* Whatever the shot came to is the position of record, so it cannot be replayed
+   a second time. */
+function endReplay(){
+  if (!locked) return;
+  locked = false; replayHold = 0; pendingLaunch = null;
+  saveDue = true; flushSave();
 }
 function loadGame(){
   const g = store.get("game", null);
@@ -611,14 +697,17 @@ function loadGame(){
       isFinite(g.fl.vx) && isFinite(g.fl.vy)) {
     ball.x = ball.px = g.fl.x;
     ball.y = ball.py = g.fl.y;
-    ball.vx = g.fl.vx; ball.vy = g.fl.vy;
-    ball.state = "fly"; armed = false;
-    replayFlight();
+    aimAngle = prevAim = Math.atan2(g.fl.vx, -g.fl.vy);
+    ball.state = "aim"; armed = false;
+    pendingLaunch = { vx: g.fl.vx, vy: g.fl.vy };
+    replayHold = REPLAY_HOLD;
+    locked = true;
   }
   return inPlay;
 }
 function newGame(){
   auditSize();
+  locked = false; replayHold = 0; pendingLaunch = null;
   statics = []; pts = []; score = 0; overFlash = 0; dying = 0;
   aimAngle = 0; aimDir = 1; aimDelay = 0;
   turn = 0; pity = 0;
@@ -641,6 +730,17 @@ function newGame(){
 
 /* ---------------------------------------------------------------- input */
 function canvasPoint(ev){
+  /* offsetX and offsetY are already in the element's own coordinates, before any
+     transform on an ancestor, so they need no unwinding and cannot go stale
+     while a rotation settles. The arithmetic below is the fallback, and it was
+     the whole story until presses started going missing after a turn: it reads
+     the rotated bounding box and undoes the rotation by hand, using a media
+     query and an attribute that can disagree with each other for a frame or
+     two. A small button is the first thing to suffer when they do. */
+  const cw = cvs.clientWidth, ch = cvs.clientHeight;
+  if (cw > 0 && ch > 0 && typeof ev.offsetX === "number" && typeof ev.offsetY === "number") {
+    return { x: ev.offsetX / cw * W, y: ev.offsetY / ch * H };
+  }
   const r = cvs.getBoundingClientRect();
   const cx = r.left + r.width/2, cy = r.top + r.height/2;
   let dx = ev.clientX - cx, dy = ev.clientY - cy;
@@ -675,9 +775,10 @@ function press(p){
   if (scene === SC.GAME) {
     /* The one thing on the field that is a button rather than somewhere to aim
        from, so it has to be checked before the press becomes an aim. */
-    if (p && Math.hypot(p.x - FIELD_MENU.x, p.y - FIELD_MENU.fy) <= FIELD_MENU.r) {
-      play("tap", 0.5); FIELD_MENU.act(); return;
-    }
+    if (p && inMenuHit(p)) { play("tap", 0.5); scene = SC.PAUSE; return; }
+    /* Pausing is allowed while a saved shot plays; aiming over the top of it is
+       not. */
+    if (locked) return;
     // resumes from the angle it stopped at, but always sweeping rightward first
     if (ball && ball.state === "aim") { aiming = true; aimDir = 1; aimDelay = P.aimDelay; }
     return;
@@ -755,6 +856,7 @@ function gameOver(){
   dying = DEATH_HOLD;
 }
 function endRound(){
+  endReplay();
   ball = null; overFlash = 1; dying = 0;
   scene = SC.OVER;
 }
@@ -782,6 +884,10 @@ function stepBall(dt){
   ball.px = ball.x; ball.py = ball.y; ball.pr = ball.r; ball.pspin = ball.spin;
   prevAim = aimAngle;
   if (ball.state === "aim") {
+    if (locked) {
+      if (pendingLaunch) { replayHold -= dt; if (replayHold <= 0) fireSaved(); }
+      return;
+    }
     if (aiming) {
       /* A short dead time so a quick tap barely moves the arrow at all. */
       if (aimDelay > 0) { aimDelay -= dt; return; }
@@ -1002,6 +1108,11 @@ function body(text, x, y, size, maxw, color){
 const ICON_SPEAKER = new Path2D("M11.38,4.08a1,1,0,0,0-1.09.21L6.59,8H4a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2H6.59l3.7,3.71A1,1,0,0,0,11,20a.84.84,0,0,0,.38-.08A1,1,0,0,0,12,19V5A1,1,0,0,0,11.38,4.08Z");
 const ICON_WAVES = new Path2D("M18.36,19.36a1,1,0,0,1-.7-.29,1,1,0,0,1,0-1.41,8,8,0,0,0,0-11.32,1,1,0,0,1,1.41-1.41,10,10,0,0,1,0,14.14A1,1,0,0,1,18.36,19.36Z M15.54,16.54a1,1,0,0,1-.71-.3,1,1,0,0,1,0-1.41,4,4,0,0,0,0-5.66,1,1,0,0,1,1.41-1.41,6,6,0,0,1,0,8.48A1,1,0,0,1,15.54,16.54Z");
 const ICON_MUTE = new Path2D("M16,15.5a1,1,0,0,1-.71-.29,1,1,0,0,1,0-1.42l5-5a1,1,0,0,1,1.42,1.42l-5,5A1,1,0,0,1,16,15.5Z M21,15.5a1,1,0,0,1-.71-.29l-5-5a1,1,0,0,1,1.42-1.42l5,5a1,1,0,0,1,0,1.42A1,1,0,0,1,21,15.5Z");
+/* A circle broken at the top left with an arrowhead turning into the gap. Two
+   stroked paths in a 24 by 24 box, drawn rather than filled, so the weight
+   scales with the button the way a ring's does. */
+const ICON_RESTART = new Path2D("M12 2.99982C16.9706 2.99982 21 7.02925 21 11.9998C21 16.9704 16.9706 20.9998 12 20.9998C7.02944 20.9998 3 16.9704 3 11.9998C3 9.17255 4.30367 6.64977 6.34267 4.99982");
+const ICON_RESTART_TIP = new Path2D("M3 4.49982H7V8.49982");
 const ICON_SCALE = 0.045;    // of the button's radius, so it travels with it
 const ICON_TILT  = -7;       // degrees, counter-clockwise
 
@@ -1020,7 +1131,69 @@ function chevron(x, y, s, dir){
   ctx.stroke();
   ctx.restore();
 }
-function drawButton(b){
+/* Text set on its middle sits on the em box, which carries descender space
+   whether the word uses it or not. A word with a tail rides low in its circle
+   and a word without one rides high. This places the block's ink on the centre
+   instead, which is what the eye is judging. */
+/* Two reference measurements per face and size: where an x-height letter tops
+   out, where the baseline sits, and how far a cap reaches. Cached, because this
+   runs for every label on every frame. */
+const FACE = {};
+function faceM(size, weight){
+  const k = weight + "|" + size;
+  if (FACE[k]) return FACE[k];
+  ctx.font = weight + " " + size + "px " + FREDOKA;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const n = ctx.measureText("n"), h = ctx.measureText("H");
+  const m = { xTop: n.actualBoundingBoxAscent, base: n.actualBoundingBoxDescent,
+              capTop: h.actualBoundingBoxAscent };
+  if (isFinite(m.xTop) && isFinite(m.base)) FACE[k] = m;
+  return m;
+}
+function inkLabel(text, x, y, size, color, weight, lhm){
+  const wt = weight || 500;
+  const fm = faceM(size, wt);
+  ctx.font = wt + " " + size + "px " + FREDOKA;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color;
+  const lines = String(text).split("\n");
+  const lh = size * (lhm || 1.02);
+  const a = ctx.measureText(lines[0]).actualBoundingBoxAscent;
+  let   d = ctx.measureText(lines[lines.length-1]).actualBoundingBoxDescent;
+  /* A word that reaches above the x-height reads as a tall shape and the eye
+     centres all of it, tail included. A word that is all x-height with one tail
+     hanging off it does not: the eye centres the body and lets the tail hang,
+     the way "yes" wants to sit and "play!" does not. */
+  if (isFinite(fm.xTop) && isFinite(fm.capTop) && isFinite(fm.base)) {
+    const tall = a > fm.xTop + (fm.capTop - fm.xTop) * 0.35;
+    if (!tall) d = Math.min(d, fm.base);
+  }
+  const off = (isFinite(a) && isFinite(d)) ? (a - d) / 2 : 0;
+  for (let i = 0; i < lines.length; i++)
+    ctx.fillText(lines[i], x, y + off + (i - (lines.length-1)/2) * lh);
+}
+/* One place where a nudge from the table is folded into a button's own numbers,
+   so every branch below sees the settled values and nothing else has to know
+   the table exists. */
+function laid(b){
+  const o = layOf(b.id);
+  if (!o) return b;
+  const c = Object.assign({}, b);
+  c.ldx = o.dx || 0;
+  c.ldy = o.dy || 0;
+  if (o.fs  !== undefined && o.fs  !== null) c.fs  = o.fs;
+  if (o.rot !== undefined && o.rot !== null) c.rot = o.rot;
+  if (o.lh  !== undefined && o.lh  !== null) c.lh  = o.lh;
+  return c;
+}
+function drawButton(b0){
+  if (b0.id && !LAY_DEF[b0.id]) {
+    LAY_DEF[b0.id] = { fs: b0.fs || 14, rot: b0.rot || 0,
+                       lh: b0.lh === undefined ? 1.02 : b0.lh,
+                       lines: String(b0.label || (b0.text && b0.text()) || "").split("\n").length };
+  }
+  const b = laid(b0);
   const by = btnY(b);
   if (b.chev) { ring(b.x, by, b.r, ringW(b)); chevron(b.x, by, b.r * 0.42, b.chev); return; }
   /* A toggle is the same two-stage circle as the big buttons, with the inner
@@ -1035,10 +1208,9 @@ function drawButton(b){
       ctx.fill();
     }
     ctx.save();
-    ctx.translate(b.x, by);
+    ctx.translate(b.x + (b.ldx || 0), by + (b.ldy || 0));
     if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
-    label(b.text(), 0, 0, b.fs || 12, on ? "#000000" : "#00ff00", "center",
-          on ? 600 : 500, undefined, b.lh);
+    inkLabel(b.text(), 0, 0, b.fs || 12, on ? "#000000" : "#00ff00", on ? 600 : 500, b.lh);
     ctx.restore();
     return;
   }
@@ -1053,16 +1225,30 @@ function drawButton(b){
     /* The original set each of these labels on its own slight angle, measured
        here off the artwork rather than guessed. */
     ctx.save();
-    ctx.translate(b.x, by);
+    ctx.translate(b.x + (b.ldx || 0), by + (b.ldy || 0));
     if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
-    label(b.label, 0, 0, b.fs || 14, "#000000", "center", 600, undefined, b.lh);
+    inkLabel(b.label, 0, 0, b.fs || 14, "#000000", 600, b.lh);
+    ctx.restore();
+    return;
+  }
+  if (b.restart) {
+    ring(b.x, by, b.r, ringW(b));
+    ctx.save();
+    ctx.translate(b.x + (b.ldx || 0), by + (b.ldy || 0));
+    const s = b.r * ICON_SCALE * 0.944;
+    ctx.scale(s, s);
+    ctx.translate(-12, -12);              // the glyph's own 24x24 centre
+    ctx.strokeStyle = "#00ff00";
+    ctx.lineWidth = 2.7; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.stroke(ICON_RESTART);
+    ctx.stroke(ICON_RESTART_TIP);
     ctx.restore();
     return;
   }
   if (b.sound) {
     ring(b.x, by, b.r, ringW(b));
     ctx.save();
-    ctx.translate(b.x, by);
+    ctx.translate(b.x + (b.ldx || 0), by + (b.ldy || 0));
     ctx.rotate(ICON_TILT * Math.PI / 180);
     const s = b.r * ICON_SCALE;
     ctx.scale(s, s);
@@ -1075,9 +1261,9 @@ function drawButton(b){
   }
   ring(b.x, by, b.r, ringW(b));
   ctx.save();
-  ctx.translate(b.x, by);
+  ctx.translate(b.x + (b.ldx || 0), by + (b.ldy || 0));
   if (b.rot) ctx.rotate(b.rot * Math.PI / 180);
-  label(b.label, 0, 0, b.fs || 14, "#00ff00", "center", b.big ? 600 : 500, undefined, b.lh);
+  inkLabel(b.label, 0, 0, b.fs || 14, "#00ff00", b.big ? 600 : 500, b.lh);
   ctx.restore();
 }
 function drawMenu(){
@@ -1140,6 +1326,9 @@ function edgeBox(){
 }
 
 const QUIET = "#007f00";
+/* One step down from the quiet green, for the line under the wordmark. At the
+   size that line is set now, the quiet green competes with the mark itself. */
+const HUSH = "#004600";
 /* Number on top, its caption under it: best under the best, and under the score
    three dots, which is the way back to the menu. No word for it on the field.
    SCORE_BASE is the bottom of the whole block, measured up from the bottom of
@@ -1147,14 +1336,17 @@ const QUIET = "#007f00";
 const LAB_PX = 15, LAB_CAP = 0.70, SCORE_GAP = 13;
 const SCORE_LAB_Y = H - SCORE_BASE - LAB_PX * LAB_CAP / 2;
 const SCORE_NUM_Y = SCORE_LAB_Y - LAB_PX * LAB_CAP / 2 - SCORE_GAP;
-/* The tap target does not have to match the ink, so the dots stay small while
-   the thing you press stays comfortable, and the arrow never sweeps past x 97
-   so it cannot be caught while aiming. */
 /* Each column hangs off its own edge, so a number grows inward as it gains
    digits and nothing ever reaches the screen edge. */
 const SCORE_MARGIN = 12;
-const FIELD_MENU = { x: SCORE_MARGIN + 11, fy: SCORE_LAB_Y, r:24,
-                     act:function(){ scene = SC.MENU; } };
+/* A rectangle, not a circle, reaching up over the score and down to the very
+   bottom edge of the screen. The dots sit close enough to the bottom that a
+   small target there competes with the system's own gesture area, which is what
+   made presses go missing. Nothing else lives below the dashed line on this
+   side and the arrow never sweeps past x 97, so the extra area costs nothing,
+   and a stray press is cheap now that it opens a screen with resume on it. */
+const MENU_HIT = { r: 54, t: SCORE_NUM_Y - 30 };
+function inMenuHit(p){ return p.x <= MENU_HIT.r && p.y >= MENU_HIT.t; }
 /* textAlign lines up the advance box, which carries the face's side bearings,
    so a number and the caption under it set to the same edge still do not have
    their ink flush with each other. Barlow's digits carry about a unit on each
@@ -1187,14 +1379,15 @@ function drawGame(){
   /* The score sits under everything that is in play, so a ball that rolls down
      into the corner passes over its own number rather than behind it. */
   /* high tracks the score upward as you play, so being level with it is what
-     beating it looks like from inside the round. Both numbers brighten together,
-     because what is happening is one number becoming the other. */
+     beating it looks like from inside the round. The best lights up and its
+     caption with it; the running score stays quiet, so the thing that changed is
+     the thing that draws the eye. */
   const hot = score > 0 && score >= high;
-  const nc  = hot ? "#00ff00" : QUIET;
-  inkText(String(score), SCORE_MARGIN, SCORE_NUM_Y, SCORE_PX, 700, BARLOW, nc, "alphabetic", false);
-  inkText(String(high), W - SCORE_MARGIN, SCORE_NUM_Y, SCORE_PX, 700, BARLOW, nc, "alphabetic", true);
-  inkText("best", W - SCORE_MARGIN, SCORE_LAB_Y, LAB_PX, 500, FREDOKA, QUIET, "middle", true);
-  if (scene === SC.GAME) dots(SCORE_MARGIN, SCORE_LAB_Y, QUIET);
+  const bc  = hot ? "#00ff00" : QUIET;
+  inkText(String(score), SCORE_MARGIN, SCORE_NUM_Y, SCORE_PX, 700, BARLOW, QUIET, "alphabetic", false);
+  inkText(String(high), W - SCORE_MARGIN, SCORE_NUM_Y, SCORE_PX, 700, BARLOW, bc, "alphabetic", true);
+  inkText("best", W - SCORE_MARGIN, SCORE_LAB_Y, LAB_PX, 500, FREDOKA, bc, "middle", true);
+  if (scene !== SC.OVER) dots(SCORE_MARGIN, SCORE_LAB_Y, QUIET);
 
   for (const s of statics) drawBall(s.x, s.y, s.r, s.type, s.hits);
 
@@ -1206,7 +1399,7 @@ function drawGame(){
       ctx.save();
       ctx.translate(bx, by);
       ctx.rotate(lerp(prevAim, aimAngle, alphaT));
-      ctx.globalAlpha = aiming ? 1 : 0.45;
+      ctx.globalAlpha = (aiming || locked) ? 1 : 0.45;
       drawArrow();
       ctx.restore();
     }
@@ -1227,7 +1420,7 @@ function drawOver(){
   ctx.fillStyle = "rgba(0,0,0," + (0.91 + overFlash*0.06) + ")";
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
-  slotLabel("A", "game\nover", 32, -3.3, 0.80);
+  slotLabel("over.heading", "A", "game\nover", 35, -3.3, 0.80);
   ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.r * RING_K);
   drawNumberMid(score, SLOT.B.x, SLOT.B.fy, 58, "center");
   drawMenu();
@@ -1252,7 +1445,11 @@ function titleM(){
   if (TM && TMfixed) return TM;
   const mark = inkW("frict", TITLE_PX, 600);
   const sub  = inkW(SUBTITLE, 100, 400);
-  const px   = sub.w > 0 ? 100 * mark.w / sub.w : 12;
+  let px     = sub.w > 0 ? 100 * mark.w / sub.w : 12;
+  /* Glyph widths are not quite linear in the size, so the first guess lands
+     about a percent out. One correction pass at the chosen size closes it. */
+  const at = inkW(SUBTITLE, px, 400);
+  if (at.w > 0) px *= mark.w / at.w;
   /* Right-aligned, so the mark's ink ends at TITLE_R and starts a width back. */
   const x0   = TITLE_R - mark.w;
   const y    = TITLE_Y + TITLE_PX * TITLE_CAP + SUB_GAP + px * TITLE_CAP;
@@ -1263,17 +1460,65 @@ function titleM(){
 }
 function titleBlock(){
   const m = titleM();
-  label("frict", TITLE_R, TITLE_Y, TITLE_PX, "#00ff00", "right", 600);
+  const om = layOf("title.mark") || {}, os = layOf("title.sub") || {};
+  label("frict", TITLE_R + (om.dx || 0), TITLE_Y + (om.dy || 0),
+        om.fs || TITLE_PX, "#00ff00", "right", 600);
   /* The quiet green the rule, the dashed line and the score use. It used to be
      that colour at 55% over black, which is a step darker again and read as a
      different, muddier green. */
-  inkText(SUBTITLE, m.x0, m.y, m.px, 400, FREDOKA, QUIET, "middle", false);
+  inkText(SUBTITLE, m.x0 + (os.dx || 0), m.y + (os.dy || 0), os.fs || m.px,
+          400, FREDOKA, HUSH, "middle", false);
 }
 function drawTitle(){
   drawMenu();
   titleBlock();
 }
 
+/* ------------------------------------------------- the tutorial's field */
+/* The steps that show a shot draw a short playfield: the same rule the real one
+   has across the top, in the same place on every step, and the real dashed line
+   at the bottom. Between them there is room for a ball to travel. */
+const TUT_RULE = 271;
+const TUT_MID  = "#00b500";      // between the live green and the quiet one
+function tutRule(){
+  ctx.fillStyle = "#007f00";
+  ctx.fillRect(0, TUT_RULE, W, hair());
+}
+/* The size a ball at rest will grow to. Round ends, so the dashes read as one
+   circle rather than a row of tiles. */
+function growRing(x, y, r){
+  ctx.save();
+  ctx.strokeStyle = TUT_MID; ctx.lineWidth = 2; ctx.lineCap = "round";
+  /* A round cap adds half the stroke at each end, so the dash is set that much
+     shorter than the 6.3 it should read as. */
+  ctx.setLineDash([4.3, 7.9]);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+/* A path a ball could have taken, as dots rather than a line, held clear of
+   whatever sits at each end of it. */
+function dotPath(pts, clipStart, clipEnd){
+  const PITCH = 11.8, DOT = 1.5;
+  const a = pts[0], z = pts[pts.length-1];
+  ctx.fillStyle = TUT_MID;
+  let carry = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p = pts[i], q = pts[i+1];
+    const dx = q[0]-p[0], dy = q[1]-p[1], len = Math.hypot(dx, dy);
+    for (let s = carry; s < len; s += PITCH) {
+      const x = p[0] + dx*s/len, y = p[1] + dy*s/len;
+      if (Math.hypot(x-a[0], y-a[1]) < clipStart) continue;
+      if (Math.hypot(x-z[0], y-z[1]) < clipEnd) continue;
+      ctx.beginPath(); ctx.arc(x, y, DOT, 0, Math.PI*2); ctx.fill();
+    }
+    carry = PITCH - ((len - carry) % PITCH);
+  }
+}
+/* Where the first shot ended up on the size step, and how big it grew. Both
+   steps below are drawn from these, so the second picks up exactly where the
+   first left off. */
+const REST1 = { x: 98.3, y: 324 };
+const GROWN1 = REST1.y - (TUT_RULE + 1) - 1;     // it grew until it met the rule
 function drawTut(){
   const t = TUT_TEXT[tutStep];
   /* The original set these in caps; everything else in this game is lowercase. */
@@ -1284,20 +1529,36 @@ function drawTut(){
   if (tutStep === 1) {
     /* Same dashed line and same launch point the playfield uses, so the
        illustration and the real thing sit at identical heights. */
+    tutRule();
     baseline();
     const ly = launchY();
     ctx.save(); ctx.translate(160, ly); ctx.rotate(-0.35); drawArrow(); ctx.restore();
     drawBall(160, ly, SHOT_R, "normal", 2);
   } else if (tutStep === 2) {
-    drawBall(90, V(320), 13, "normal", 2);
-    drawBall(210, V(320), 42, "normal", 2);
-    ctx.save(); ctx.globalAlpha = .45; ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 2;
-    ctx.setLineDash([4,5]); ctx.beginPath(); ctx.arc(210, V(320), 52, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+    /* One shot: off the left wall, to rest below the rule, and the dashed ring
+       is the size it will reach. The bounce is a true reflection, worked out
+       from the two ends rather than drawn by eye, and the ring's radius is the
+       gap up to the rule, so it stops at the wall by construction. */
+    tutRule(); baseline();
+    const by = 447;
+    dotPath([[160, launchY()], [FIELD_L, by], [REST1.x, REST1.y]], SHOT_R + 6, GROWN1 + 8);
+    growRing(REST1.x, REST1.y, GROWN1);
+    drawBall(REST1.x, REST1.y, 42, "normal", 2);
+    drawBall(160, launchY(), SHOT_R, "normal", 2);
   } else if (tutStep === 3) {
-    drawBall(96, V(322), 37, "normal", 2);
-    drawBall(214, V(322), 37, "normal", 1);
-    label("2 hits left", 96, V(357), 12, "#007f00", "center", 500);
-    label("1 hit left", 214, V(357), 12, "#007f00", "center", 500);
+    /* The next shot goes almost straight up, clips that ball on its lower right
+       and turns 116 degrees, which is the incoming direction reflected about
+       the normal at the contact. It rolls out to the right and grows until it
+       meets the wall, so its radius is simply the gap it has left. */
+    tutRule(); baseline();
+    const hit = [137.4, 375.9], rest = [274.4, 428.0];
+    const R2 = FIELD_R - rest[0];
+    dotPath([[160, launchY()], hit, rest], SHOT_R + 6, R2 + 3);
+    drawBall(160, launchY(), SHOT_R, "normal", 2);
+    drawBall(REST1.x, REST1.y, GROWN1, "normal", 1);
+    drawBall(rest[0], rest[1], R2, "normal", 2);
+    inkLabel("1 hit left", REST1.x, REST1.y, 16, "#00ff00", 500);
+    inkLabel("2 hits\nleft", rest[0], rest[1], 16, "#000000", 500, 0.95);
   } else if (tutStep === 4) {
     /* Labels flush left to one another, the whole block centred on the screen. */
     const rows = ["double","triple","razor"];
@@ -1323,7 +1584,9 @@ function drawTut(){
    menu with its buttons swapped for text rather than as a new page. */
 function drawAbout(){
   titleBlock();
-  let y = V(160);
+  /* Higher than the middle of the space above the wordmark. A block of text
+     centred by measurement in a tall empty field reads as having sunk. */
+  let y = V(118);
   y = body("Frict was originally created by Joris Truyen and released on the iOS App Store in the late 2000's.", 30, y, 16, 260) + 14;
   body("This version is a fan reconstruction and update of the original game, based on fond memories and tuned for modern phones.", 30, y, 16, 260);
   drawMenu();
@@ -1331,7 +1594,7 @@ function drawAbout(){
 
 function drawHiscore(){
   titleBlock();
-  slotLabel("A", "high\nscore", 32, -4, 0.80);
+  slotLabel("hiscore.heading", "A", "high\nscore", 32, -6.5, 0.80);
   ring(SLOT.B.x, SLOT.B.fy, SLOT.B.r, SLOT.B.r * RING_K);
   drawNumberMid(high, SLOT.B.x, SLOT.B.fy, 58, "center");
   drawMenu();
@@ -1341,17 +1604,33 @@ function drawHiscore(){
    says whether sound is on without needing a caption under it. */
 function drawSettings(){
   titleBlock();
-  slotLabel("C", "settings", 27, -6.1);
+  slotLabel("settings.heading", "C", "settings", 27, -6.1);
   drawMenu();
 }
 
 function drawPlayMenu(){
   /* A ring rather than a disc, so it reads as the heading and not a button. */
-  drawButton(slot("A", { fs:48, rot:4.8, label:"play!" }));
+  drawButton(slot("A", { id:"play.heading", fs:48, rot:-4.8, label:"play!" }));
   drawMenu();
 }
-function drawReset(){
-  slotLabel("B", "reset?", 46, 2.7);
+function scrim(a){
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0," + a + ")";
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+/* Over the field rather than instead of it, so the round you are coming back to
+   is still there behind the buttons. The heading is a ring, not a disc: it is a
+   word, not something to press. */
+function drawPause(){
+  drawGame();
+  scrim(0.88);
+  drawButton(slot("A", { id:"pause.heading", fs:36, rot:-3.6, label:"pause" }));
+  drawMenu();
+}
+function drawConfirm(){
+  if (askOverField) { drawGame(); scrim(0.88); }
+  slotLabel(askId, "B", askText, askFs, askRot, 0.86);
   drawMenu();
 }
 
@@ -1367,7 +1646,8 @@ function render(){
   else if (scene === SC.HISCORE)  drawHiscore();
   else if (scene === SC.SETTINGS) drawSettings();
   else if (scene === SC.PLAYMENU) drawPlayMenu();
-  else if (scene === SC.RESET)    drawReset();
+  else if (scene === SC.CONFIRM)  drawConfirm();
+  else if (scene === SC.PAUSE)    drawPause();
   else                            drawTitle();
   drawDbg();
 }
