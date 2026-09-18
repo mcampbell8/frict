@@ -1119,9 +1119,14 @@ const ICON_TILT  = -7;       // degrees, counter-clockwise
 /* Drawn rather than set in type. A guillemet sits on the text baseline and its
    ink is nowhere near the middle of the em, so setting one never lands in the
    centre of a circle however it is aligned. */
+/* A chevron has one stroke at its point and two at its open end, so its ink
+   gathers toward the open end and a geometrically centred one reads as having
+   drifted inward. Nudged toward its point, which on these buttons is the near
+   edge of the screen. */
+const CHEV_BIAS = 0.09;
 function chevron(x, y, s, dir){
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x + dir * s * CHEV_BIAS, y);
   ctx.strokeStyle = "#00ff00"; ctx.lineWidth = s * 0.30;
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   ctx.beginPath();
@@ -1306,8 +1311,12 @@ function baseline(){
 const EDGE_R  = 34;
 const EDGE_RT = SHOT_R / 2;
 /* The bottom line sits one line width up from the very edge rather than on it. */
-function edgeBox(){
-  const h = hair(), k = h/2, t = TOP + k, b = H - k - h, R = EDGE_R, r = EDGE_RT;
+/* topY lets the tutorial draw the same box with its rule further down the
+   screen. Everything else about it, both corner radii and the lifted bottom
+   line, is the same drawing the field uses. */
+function edgeBox(topY){
+  const h = hair(), k = h/2, t = (topY === undefined ? TOP : topY) + k,
+        b = H - k - h, R = EDGE_R, r = EDGE_RT;
   ctx.save();
   ctx.strokeStyle = "#007f00"; ctx.lineWidth = h;
   ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -1480,9 +1489,12 @@ function drawTitle(){
    at the bottom. Between them there is room for a ball to travel. */
 const TUT_RULE = 271;
 const TUT_MID  = "#00b500";      // between the live green and the quiet one
-function tutRule(){
-  ctx.fillStyle = "#007f00";
-  ctx.fillRect(0, TUT_RULE, W, hair());
+/* The same choice the field makes, so a tutorial screen shows the boundary the
+   way the player has it set: the whole box with its corners when the edges are
+   on, a plain rule across when they are off. */
+function tutBox(){
+  if (wallsOn) edgeBox(TUT_RULE);
+  else { ctx.fillStyle = "#007f00"; ctx.fillRect(0, TUT_RULE, W, hair()); }
 }
 /* The size a ball at rest will grow to. Round ends, so the dashes read as one
    circle rather than a row of tiles. */
@@ -1518,7 +1530,12 @@ function dotPath(pts, clipStart, clipEnd){
    steps below are drawn from these, so the second picks up exactly where the
    first left off. */
 const REST1 = { x: 98.3, y: 324 };
-const GROWN1 = REST1.y - (TUT_RULE + 1) - 1;     // it grew until it met the rule
+/* The gap from that ball's centre up to the underside of the rule, which is how
+   big it grew. A ball drawn at radius r has its outer edge exactly at r, so this
+   is the number drawBall wants. The dashed ring on the size step is stroked, and
+   a stroke straddles its path, so that one is drawn a half-stroke smaller to
+   put its outer edge in the same place. */
+const GROWN1 = REST1.y - (TUT_RULE + 1);
 function drawTut(){
   const t = TUT_TEXT[tutStep];
   /* The original set these in caps; everything else in this game is lowercase. */
@@ -1529,7 +1546,7 @@ function drawTut(){
   if (tutStep === 1) {
     /* Same dashed line and same launch point the playfield uses, so the
        illustration and the real thing sit at identical heights. */
-    tutRule();
+    tutBox();
     baseline();
     const ly = launchY();
     ctx.save(); ctx.translate(160, ly); ctx.rotate(-0.35); drawArrow(); ctx.restore();
@@ -1539,10 +1556,10 @@ function drawTut(){
        is the size it will reach. The bounce is a true reflection, worked out
        from the two ends rather than drawn by eye, and the ring's radius is the
        gap up to the rule, so it stops at the wall by construction. */
-    tutRule(); baseline();
+    tutBox(); baseline();
     const by = 447;
-    dotPath([[160, launchY()], [FIELD_L, by], [REST1.x, REST1.y]], SHOT_R + 6, GROWN1 + 8);
-    growRing(REST1.x, REST1.y, GROWN1);
+    dotPath([[160, launchY()], [FIELD_L, by], [REST1.x, REST1.y]], SHOT_R + 6, GROWN1 + 7);
+    growRing(REST1.x, REST1.y, GROWN1 - 1);
     drawBall(REST1.x, REST1.y, 42, "normal", 2);
     drawBall(160, launchY(), SHOT_R, "normal", 2);
   } else if (tutStep === 3) {
@@ -1550,7 +1567,7 @@ function drawTut(){
        and turns 116 degrees, which is the incoming direction reflected about
        the normal at the contact. It rolls out to the right and grows until it
        meets the wall, so its radius is simply the gap it has left. */
-    tutRule(); baseline();
+    tutBox(); baseline();
     const hit = [137.4, 375.9], rest = [274.4, 428.0];
     const R2 = FIELD_R - rest[0];
     dotPath([[160, launchY()], hit, rest], SHOT_R + 6, R2 + 3);
@@ -1560,16 +1577,27 @@ function drawTut(){
     inkLabel("1 hit left", REST1.x, REST1.y, 16, "#00ff00", 500);
     inkLabel("2 hits\nleft", rest[0], rest[1], 16, "#000000", 500, 0.95);
   } else if (tutStep === 4) {
-    /* Labels flush left to one another, the whole block centred on the screen. */
+    /* Labels flush left to one another, the whole block centred on the screen.
+       Vertically it sits in the middle of whatever the text leaves above the
+       two buttons, worked out from both rather than pinned to a height, so it
+       stays centred if the wording ever changes. */
     const rows = ["double","triple","razor"];
     const br = 17, bigR = br * RAZOR_SCALE, gap = 13;
+    const pitch = V(42);
+    const blockH = 2*pitch + br + bigR;
+    /* The ink of the last line, not the bottom of its line box, which sits a
+       descender lower than anything actually drawn. */
+    ctx.font = BODYWT + " 18px " + BARLOW; ctx.textBaseline = "top";
+    const textBot = (y - 10 - 18*1.42) + ctx.measureText("Rgy").actualBoundingBoxDescent;
+    const band = (textBot + (V(440) - 26)) / 2;
+    const rowTop = band - blockH/2 + br;
     ctx.font = "500 15px " + FREDOKA;
     let tw = 0;
     for (let i=0;i<3;i++) tw = Math.max(tw, ctx.measureText(rows[i]).width);
     const gx = 160 - (bigR*2 + gap + tw)/2 + bigR;
     const tx = gx + bigR + gap;
     for (let i=0;i<3;i++){
-      const yy = V(300 + i*42);
+      const yy = rowTop + i*pitch;
       drawBall(gx, yy, rows[i] === "razor" ? bigR : br, rows[i], 2);
       label(rows[i], tx, yy, 15, "#00ff00", "left", 500);
     }
