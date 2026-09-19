@@ -54,6 +54,95 @@
   <canvas id="game" width="320" height="693" tabindex="0"
           aria-label="Frict. Press and hold to aim, release to shoot."></canvas>
 </div>
+
+<div id="probe" style="position:fixed;top:0;left:0;width:0;height:0;
+     padding:env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+     visibility:hidden;pointer-events:none"></div>
+<div id="corner" style="position:fixed;top:0;right:0;width:44px;height:44px;
+     z-index:9;background:transparent"></div>
+<pre id="vpread" style="position:fixed;top:0;left:0;right:0;z-index:10;margin:0;
+     display:none;padding:56px 10px 10px;background:rgba(0,0,0,.92);color:#00d000;
+     font:12px/1.45 ui-monospace,Menlo,monospace;white-space:pre-wrap"></pre>
+<script>
+(function(){
+  var scr = document.querySelector(".screen");
+  var turned = window.matchMedia("(orientation:landscape) and (max-height:600px)");
+
+  /* The element is rotated a quarter turn in landscape, so its own width runs
+     down the screen's height. Measure the viewport, then hand the two numbers
+     over in whichever order this orientation wants them. */
+  function fit(){
+    var w = window.innerWidth, h = window.innerHeight;
+    var t = turned.matches;
+    scr.style.width  = (t ? h : w) + "px";
+    scr.style.height = (t ? w : h) + "px";
+    if (panel.style.display !== "none") report();
+  }
+
+  function unit(u){
+    var d = document.createElement("div");
+    d.style.cssText = "position:fixed;top:0;left:0;width:1px;visibility:hidden;height:100" + u;
+    document.body.appendChild(d);
+    var v = d.getBoundingClientRect().height;
+    d.remove();
+    return Math.round(v * 100) / 100;
+  }
+
+  var panel = document.getElementById("vpread");
+  var probe = document.getElementById("probe");
+
+  function box(el){
+    var r = el.getBoundingClientRect();
+    return Math.round(r.width*100)/100 + " x " + Math.round(r.height*100)/100 +
+           "  at " + Math.round(r.left*100)/100 + "," + Math.round(r.top*100)/100;
+  }
+
+  function report(){
+    var cs = getComputedStyle(probe);
+    var cvs = document.getElementById("game");
+    var mode = ["standalone","fullscreen","minimal-ui","browser"].filter(function(m){
+      return matchMedia("(display-mode:" + m + ")").matches; }).join(",") || "none";
+    panel.textContent = [
+      "inner    " + window.innerWidth + " x " + window.innerHeight,
+      "screen   " + screen.width + " x " + screen.height,
+      "avail    " + screen.availWidth + " x " + screen.availHeight,
+      "docEl    " + document.documentElement.clientWidth + " x " +
+                    document.documentElement.clientHeight,
+      "dpr      " + window.devicePixelRatio,
+      "vh/svh/lvh/dvh  " + unit("vh") + " / " + unit("svh") + " / " +
+                           unit("lvh") + " / " + unit("dvh"),
+      "safe T/R/B/L    " + cs.paddingTop + " / " + cs.paddingRight + " / " +
+                           cs.paddingBottom + " / " + cs.paddingLeft,
+      ".screen  " + box(scr),
+      "canvas   " + box(cvs) + "   buffer " + cvs.width + " x " + cvs.height,
+      "standalone " + (navigator.standalone === undefined ? "n/a" : navigator.standalone) +
+        "   display-mode " + mode,
+      "orientation " + (screen.orientation ? screen.orientation.type : "n/a") +
+        "   turned " + turned.matches
+    ].join("\n");
+  }
+
+  var last = 0;
+  document.getElementById("corner").addEventListener("pointerdown", function(e){
+    e.preventDefault(); e.stopPropagation();
+    var now = Date.now();
+    if (now - last < 1000) {
+      if (panel.style.display === "none") { report(); panel.style.display = "block"; }
+      else panel.style.display = "none";
+      last = 0;
+    } else last = now;
+  }, true);
+  panel.addEventListener("pointerdown", function(e){
+    e.preventDefault(); e.stopPropagation(); panel.style.display = "none";
+  }, true);
+
+  fit();
+  addEventListener("resize", fit);
+  addEventListener("orientationchange", function(){ setTimeout(fit, 60); setTimeout(fit, 400); });
+  if (turned.addEventListener) turned.addEventListener("change", fit);
+})();
+</script>
 <script>
 window.PORTRAIT_LOCK = true;
 (function(){
