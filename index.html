@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Frict</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Barlow:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Barlow:wght@300;400;700&display=swap">
 <style>
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
@@ -432,6 +432,7 @@ const LAY_ITEMS = [
   ["menu.help",       "MENU",     "?"],
   ["title.mark",      "MENU",     "frict"],
   ["title.sub",       "MENU",     "forever"],
+  ["menu.version",    "MENU",     "version stamp"],
   ["play.heading",    "PLAYMENU", "play! heading"],
   ["play.resume",     "PLAYMENU", "resume"],
   ["play.new",        "PLAYMENU", "new game"],
@@ -1478,9 +1479,21 @@ function titleBlock(){
   inkText(SUBTITLE, m.x0 + (os.dx || 0), m.y + (os.dy || 0), os.fs || m.px,
           400, FREDOKA, HUSH, "middle", false);
 }
+/* A build stamp, bottom left of the title screen and nowhere else. It exists so
+   a phone can be checked at a glance against the build that was sent, which a
+   home screen app otherwise gives no way to do. Tick the letter on every build
+   that goes out. */
+const VERSION = "v 0.2a";
+const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
+function versionStamp(){
+  const o = layOf("menu.version") || {};
+  inkText(VERSION, VER_X + (o.dx || 0), VER_Y + (o.dy || 0), o.fs || VER_PX,
+          300, BARLOW, QUIET, "alphabetic", false);
+}
 function drawTitle(){
   drawMenu();
   titleBlock();
+  versionStamp();
 }
 
 /* ------------------------------------------------- the tutorial's field */
@@ -1747,6 +1760,7 @@ function start(saved){
   if (document.fonts && document.fonts.load) {
     document.fonts.load('700 42px "Barlow"');
     document.fonts.load('400 18px "Barlow"');
+    document.fonts.load('300 13px "Barlow"');
     document.fonts.load('600 40px "Fredoka"');
   }
   requestAnimationFrame(frame);
