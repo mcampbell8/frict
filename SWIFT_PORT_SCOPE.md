@@ -185,6 +185,7 @@ The human will check the finished app on a real phone once. Everything before th
 
 - Run on a Mac with Xcode and at least one iOS simulator installed, for example in Claude Code on the human's Mac. An iOS app cannot be built, tested or screenshotted on Linux. If you find yourself in a Linux container, stop and say so before writing code.
 - Do not change any tuned number, label, angle, colour, timing or probability. If something cannot be matched natively, stop and describe the difference rather than picking a substitute.
+- Draw every ball, button, icon, line and label as a vector path or font text at runtime, at the screen's native resolution. Do not ship image assets apart from the app icon, and do not pre-render anything into bitmaps or textures.
 - Do not add features, analytics, ads, Game Center or haptics unless the human asks.
 - Keep `index.html` untouched. Put the Xcode project in a new top-level folder such as `ios/`.
 
