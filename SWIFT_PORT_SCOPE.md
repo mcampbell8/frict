@@ -81,7 +81,7 @@ Things that are easy to miss:
 
 ### Save, resume and replay
 
-- Keys and shapes stay the same as `localStorage` (`frict.high`, `frict.game`, `frict.sound`, `frict.scheme`, `frict.walls`), stored as JSON in `UserDefaults` or as `Codable` structs. Nothing migrates from the web app's storage, so a player's existing best score will not carry over. Tell the human this.
+- Keys and shapes stay the same as `localStorage` (`frict.high`, `frict.game`, `frict.sound`, `frict.scheme`, `frict.walls`), stored as JSON in `UserDefaults` or as `Codable` structs. Nothing migrates from the web app's storage. The human has confirmed that scores do not need to carry over.
 - The save written at launch of a shot (`saveLaunch`) is synchronous and includes the ball's position and velocity. On load, that shot is replayed: the ball sits at the launch point with the arrow at the fired angle for `REPLAY_HOLD 0.5` s, then fires itself. Input is locked during replay except for the pause area.
 - Periodic save every 1.5 s (`flushSave`) and on backgrounding. Native `UserDefaults` writes are cheap, but keep the deferred-save structure so behaviour stays identical.
 - Handle `sceneDidEnterBackground` / `willResignActive` where the JS handles `pagehide` and `visibilitychange`. On return to the foreground, restart the audio engine if it stopped.
@@ -119,7 +119,7 @@ The game relies on Canvas text behaviour in ways that do not map directly onto C
 - Volumes: tap 0.5, pop 0.55, game over 0.7 delayed by 0.15 s.
 - Use `AVAudioEngine` with all six files decoded into `AVAudioPCMBuffer`s at startup, and a small pool of `AVAudioPlayerNode`s (eight is plenty) so overlapping pops do not cut each other off. Schedule the delayed game-over sound against the audio clock (`AVAudioTime` with a host-time offset), not with `DispatchQueue.asyncAfter`, matching the JS comment about drift.
 - Latency matters here. The original's comments describe trimming the clips so the attack lands within a quarter millisecond. Set `AVAudioSession.setPreferredIOBufferDuration(0.005)` and start the engine at launch, not on first tap.
-- Audio session category: `.ambient`. That mixes with the player's music and respects the silent switch, which is how the web app behaves in Safari. Ask the human before choosing otherwise.
+- Audio session category: `.ambient`. That mixes with the player's music and respects the silent switch, which is how the web app behaves in Safari. The human has confirmed this choice.
 - Respect the sound on/off setting (`frict.sound`, default on).
 - Restart the engine after interruptions and route changes (`AVAudioSession.interruptionNotification`, `AVAudioEngineConfigurationChange`).
 
@@ -134,18 +134,18 @@ The game relies on Canvas text behaviour in ways that do not map directly onto C
 ## 8. Screen, launch and packaging
 
 - Full-bleed black. The field's aspect ratio (0.4618) was chosen to match current iPhone screens. Draw edge to edge, ignoring safe-area insets, as the home-screen web app does with `viewport-fit=cover`.
-- Status bar: the web manifest asks for a black status bar. Hide it (`prefersStatusBarHidden = true`) unless the human wants it visible. This is a visible difference either way, so confirm it with the human by comparing against the installed web app on their phone.
+- Status bar: hidden (`prefersStatusBarHidden = true`). The human has confirmed this.
 - Launch screen: plain black, no logo, so the app opens to the menu with no flash.
-- App icon: only `icon-192.png` and `icon-512.png` exist. The App Store needs 1024×1024. Ask the human for a 1024 source; if none exists, upscale `icon-512.png` as a placeholder and say so.
-- Display name `Frict`, bundle identifier to be supplied by the human.
+- App icon: the human will supply a 1024×1024 icon later. Until then, upscale `icon-512.png` into the asset catalog as a placeholder.
+- Display name `Frict`, which the human has confirmed. Use `com.example.frict` as a placeholder bundle identifier and leave the development team unset; the human will supply both later.
 - Drop: the Google Fonts link, the manifest, `window.claude.hot` snapshot and boot hooks, `document.fonts.load`, the font-readiness check in `titleM` (fonts are available synchronously in a native app, so compute once), and the `?debug` query flag. If you keep the debug overlay, enable it with a launch argument instead.
 
 ## 9. Order of work
 
-1. Create the Xcode project, Info.plist settings, fonts, extracted audio files and a black launch screen. Confirm it builds and runs on a simulator.
+1. Create the Xcode project, Info.plist settings, fonts, extracted audio files and a black launch screen. Confirm it builds and runs on a simulator. Build the reference half of the screenshot harness (section 10a) now, so the web build's screenshots exist before you draw anything.
 2. Port constants and the pure game model (`GameState`, `Physics`) with no rendering. Write unit tests (section 10) before going further.
 3. Build the renderer for the game scene only: field box, baseline, balls, arrow, scores, popups. Wire up the display link and touches so a round is playable.
-4. Add text metrics and verify `inkLabel`, `inkText` and `body` against browser screenshots before porting menus.
+4. Add text metrics and verify `inkLabel`, `inkText` and `body` with the screenshot harness (section 10a) before porting menus.
 5. Port every remaining scene and the confirm flow.
 6. Add audio.
 7. Add persistence, resume and the shot replay.
@@ -155,22 +155,43 @@ The game relies on Canvas text behaviour in ways that do not map directly onto C
 ## 10. How to verify it matches
 
 1. **Physics golden traces.** Copy the rule and physics functions from `index.html` into a small Node script (they have no DOM dependencies apart from `play()`, which you can stub). For a set of fixed fields and launch angles, record the ball's position every step and the final score. Run the same cases through the Swift `Physics` in XCTest and require agreement to within 1e-6 units. Seed or stub randomness on both sides.
-2. **Screenshots.** Render each scene from `index.html` in headless Chromium (Playwright is available in many environments) at a 320×693 CSS viewport and a device scale factor of 3. Render the same scenes from the Swift app at 960×2079 pixels (snapshot tests drawing the view into an image, or simulator screenshots on a device with that ratio). Diff them. Cover the menu, play menu, each confirm prompt, settings with every toggle state, high score, about, all five tutorial steps, pause, game over, and a mid-game field with each ball type.
+2. **Screenshots.** This loop runs with no input from the human. See section 10a.
 3. **Sound.** Check by ear on a device: each scheme, each event, overlapping pops, the delayed game-over sound, the silent switch, and music playing in the background.
 4. **Resume.** Fire a shot and force-quit the app while the ball is moving. On relaunch, the play menu should offer resume, and resuming should replay that shot.
 5. **Frame rate.** On a ProMotion device, confirm 120 Hz and that the game runs at the same speed as on a 60 Hz device.
 
+## 10a. Automated screenshot comparison
+
+Build this harness in step 1 of section 9, before any drawing code, and run it after every change to the renderer. It needs a Mac with Xcode and runs entirely through `xcodebuild test`, so nobody has to tap anything or look at a screen.
+
+### Why the reference comes from WKWebView on the same simulator
+
+Render the original game in a `WKWebView` on the same iOS simulator the native app is tested on. A home-screen web app on an iPhone runs in WebKit, and WebKit draws canvas text with Core Text, the same text engine the native app uses. Same device, same pixel density, same font rasterizer, and same fonts means a correct port should differ only by antialiasing noise. A Chromium render on Linux or macOS would differ in text rendering on every label and would hide real layout errors in that noise.
+
+### Pieces to build
+
+1. **A scene hook in the web build.** Do not edit `index.html`. At test time, load its contents as a string, insert a block just before the final `})();` of the main IIFE that sets `window.__frict` to an object with functions to set the scene, the tutorial step, the toggles (`soundOn`, `scheme`, `wallsOn`), the score and high score, the confirm prompt (call `ask(...)` with the same arguments the buttons use), and to load a fixed field of statics and a ball in a given state. Also replace `Math.random` with a seeded generator and stop the animation loop so a test can call `stepWorld` and `render` by hand. Inline the fonts as base64 `@font-face` rules, since the simulator may have no network.
+2. **A reference host.** A test-only helper that creates a `WKWebView` sized 375×812 points (iPhone 13 mini, 3x), loads the patched HTML, waits for fonts with `document.fonts.ready`, calls `window.__frict` to set up a case, renders one frame, and captures the view with `WKWebView.takeSnapshot(with:)`.
+3. **A matching hook in the native app.** A debug-only `GameState` initializer, or launch arguments such as `-scene settings -tutStep 3 -walls 1`, that sets up the same cases. Snapshot the native `GameView` at the same size with `UIGraphicsImageRenderer` and `drawHierarchy(in:afterScreenUpdates:)`.
+4. **A case list.** One definition shared by both sides, in JSON. Cover the main menu, play menu with and without a resumable game, each of the three confirm prompts (reset, abandon, restart), settings in every combination of sound on/off, original/bubble and edges on/off, high score at 0 and at a three-digit number, about, all five tutorial steps with edges on and off, pause, game over, and mid-game fields showing every ball type, both hit states, the aim arrow at a few angles, the replay-locked arrow, score popups, and "best" lit and unlit.
+5. **The comparison.** For each case, compare the two images in XCTest. Report two numbers: the percentage of pixels that differ by more than a small per-channel threshold (start at 24 out of 255), and, for each labelled button region, the offset between the ink bounding boxes of green pixels in the two images. The second number catches a label that sits 1 unit low even when the overall pixel difference looks small. Fail a case when more than 0.5% of pixels differ or any ink box is more than 1 device pixel out. Tune those thresholds once against a deliberately broken label, then leave them.
+6. **Output.** Write each pair, a red-on-black diff image, and a summary table (case, pixel %, worst ink offset, pass or fail) to a results folder inside the repo, ignored by git, for example `ios/SnapshotResults/`. Read the summary and the diff images after each run, fix the worst case first, and repeat until everything passes.
+
+Text metrics (section 5) are where this loop earns its keep. Run it on the title screen and one confirm prompt as soon as `inkLabel` exists, and settle the baseline formula there before porting the other screens.
+
+The human will check the finished app on a real phone once. Everything before that point should come out of this loop.
+
 ## 11. Constraints for the agent
 
-- An iOS app cannot be built or run on Linux. If you are in a Linux container, you can write the Swift and the Node trace script, but you cannot compile, run the simulator, or take screenshots. Say this up front, and hand the human a list of exactly what to build and check on their Mac.
+- Run on a Mac with Xcode and at least one iOS simulator installed, for example in Claude Code on the human's Mac. An iOS app cannot be built, tested or screenshotted on Linux. If you find yourself in a Linux container, stop and say so before writing code.
 - Do not change any tuned number, label, angle, colour, timing or probability. If something cannot be matched natively, stop and describe the difference rather than picking a substitute.
 - Do not add features, analytics, ads, Game Center or haptics unless the human asks.
 - Keep `index.html` untouched. Put the Xcode project in a new top-level folder such as `ios/`.
 
-## 12. Questions to put to the human before shipping
+## 12. Decisions already made
 
-1. Hide the status bar, or show it the way the home-screen web app does?
-2. Is `.ambient` audio right (respects the silent switch, mixes with music)?
-3. Bundle identifier, team ID, and a 1024×1024 icon source?
-4. Should existing web players' best scores be carried over somehow, or is starting fresh acceptable?
-5. Is "Frict" cleared for App Store use? The About screen says this is a fan reconstruction of Joris Truyen's original game, which may matter for App Review and naming.
+1. The status bar is hidden.
+2. Audio uses `.ambient`, so it follows the silent switch and mixes with music.
+3. Scores from the web app do not carry over.
+4. The app is named Frict.
+5. The human will supply the bundle identifier, team ID and a 1024×1024 icon later. Use placeholders until then.
