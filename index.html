@@ -690,7 +690,7 @@ function loadGame(){
   const g = store.get("game", null);
   if (!g || !g.s || !Array.isArray(g.s)) return false;
   const k = (typeof g.h === "number" && g.h > 0) ? H / g.h : 1;   // older saves
-  statics = g.s.map(function(o){ return { x:o.x, y:o.y*k, r:o.r, hits:o.hits, cool:0, type:"normal" }; });
+  statics = g.s.map(function(o){ return { x:o.x, y:o.y*k, r:o.r, hits:o.hits, type:"normal" }; });
   score = g.sc || 0; turn = g.t || 1; pity = g.p || 0;
   makeBall(g.ty || "normal");
   pts = []; inPlay = true;
@@ -720,7 +720,7 @@ function newGame(){
     const y = FIELD_TOP + 24 + Math.random()*(P.baseline - FIELD_TOP - 130);
     let ok = true;
     for (const s of statics) if (Math.hypot(x-s.x, y-s.y) < s.r + r + 6) { ok = false; break; }
-    if (ok) statics.push({ x:x, y:y, r:r, hits:2, cool:0, type:"normal" });
+    if (ok) statics.push({ x:x, y:y, r:r, hits:2, type:"normal" });
   }
   readyBall();
   inPlay = true;
@@ -833,9 +833,17 @@ function removeStatic(s, gain, hx, hy){
   play("pop", 0.55);
   if (score > high) { high = score; highDue = true; }
 }
+/* One touch is one hit. Each shot ball keeps a note of which stationary balls it
+   is touching right now (ball.touching). A stationary ball takes a hit only when
+   the shot ball begins touching it, and the note for that ball is cleared only
+   once the two have come apart by at least HIT_GAP, so a ball that leaves, bounces
+   off a wall and comes back registers again, however quickly, while one that
+   never opens a full HIT_GAP of space counts as still the same touch. This
+   replaces the 0.18 s cooldown, which swallowed a real second hit whenever the
+   round trip was short. HIT_GAP is in field units, not screen pixels, so the rule
+   is identical on every device; on a 375 pt wide screen one unit is about a point. */
+const HIT_GAP = 1;
 function hitStatic(s, type, hx, hy){
-  if (s.cool > 0) return;
-  s.cool = 0.18;
   if (type === "razor") { removeStatic(s, 1, hx, hy); return; }
   s.hits -= 1;
   if (s.hits <= 0) removeStatic(s, mult(type), hx, hy);
@@ -923,7 +931,7 @@ function stepBall(dt){
     ball.r = ball.r0 + (ball.target - ball.r0) * k;
     if (k >= 1) {
       ball.r = ball.target;
-      statics.push({ x:ball.x, y:ball.y, r:ball.r, hits:2, cool:0, type:"normal" });
+      statics.push({ x:ball.x, y:ball.y, r:ball.r, hits:2, type:"normal" });
       readyBall();
       saveGame();
     }
@@ -954,21 +962,25 @@ function stepBall(dt){
     ball.x += ball.vx * h;
     ball.y += ball.vy * h;
 
+    const touching = ball.touching || (ball.touching = new Set());
     for (let i = statics.length - 1; i >= 0; i--) {
       const s = statics[i];
       const dx = ball.x - s.x, dy = ball.y - s.y;
       const d = Math.hypot(dx, dy);
-      if (d >= s.r + ball.r) continue;
+      const gap = d - (s.r + ball.r);
+      if (gap >= 0) continue;
       const nx = dx/(d||1), ny = dy/(d||1);
       if (ball.type === "razor") { hitStatic(s, "razor", s.x + nx*s.r*POP_PULL, s.y + ny*s.r*POP_PULL); continue; }
       ball.x = s.x + nx*(s.r + ball.r);
       ball.y = s.y + ny*(s.r + ball.r);
       spinKick(nx, ny);
       const scoring = dying <= 0;
+      const fresh = !touching.has(s);
+      touching.add(s);
       const dot = ball.vx*nx + ball.vy*ny;
       ball.vx = (ball.vx - 2*dot*nx) * P.bounce;
       ball.vy = (ball.vy - 2*dot*ny) * P.bounce;
-      if (scoring) hitStatic(s, ball.type, s.x + nx*s.r*POP_PULL, s.y + ny*s.r*POP_PULL);
+      if (scoring && fresh) hitStatic(s, ball.type, s.x + nx*s.r*POP_PULL, s.y + ny*s.r*POP_PULL);
     }
 
     /* Walls last. Pushing clear of a static can eject the ball past a wall, and
@@ -976,6 +988,15 @@ function stepBall(dt){
     if (ball.x - ball.r < FIELD_L) { ball.x = FIELD_L + ball.r; spinKick(1, 0); ball.vx = -ball.vx * P.bounce; }
     if (ball.x + ball.r > FIELD_R) { ball.x = FIELD_R - ball.r; spinKick(-1, 0); ball.vx = -ball.vx * P.bounce; }
     if (ball.y - ball.r < FIELD_TOP) { ball.y = FIELD_TOP + ball.r; spinKick(0, 1); ball.vy = -ball.vy * P.bounce; }
+
+    /* A touch ends only once the ball's edge is HIT_GAP clear of the static.
+       This is checked after the walls have placed the ball for good, so a wall
+       that stops the ball a hair short of the static cannot end the touch. */
+    if (touching.size) {
+      for (const s of touching) {
+        if (Math.hypot(ball.x - s.x, ball.y - s.y) - (s.r + ball.r) >= HIT_GAP) touching.delete(s);
+      }
+    }
 
     if (!armed && ball.y + ball.r < P.baseline) armed = true;
     if (dying <= 0 && ball.type !== "razor") {
@@ -999,7 +1020,6 @@ function stepBall(dt){
 
 function stepWorld(dt){
   if (dying > 0) { dying -= dt; if (dying <= 0) { endRound(); return; } }
-  for (const s of statics) if (s.cool > 0) s.cool -= dt;
   for (let i = pts.length - 1; i >= 0; i--) {
     pts[i].t += dt; pts[i].y -= 26*dt;
     if (pts[i].t > 0.9) pts.splice(i, 1);
@@ -1483,7 +1503,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.2a";
+const VERSION = "v 0.3a";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
