@@ -295,7 +295,14 @@ function measure(){
      way round leaves the canvas on a half device pixel and every crisp edge
      shimmers as things move across it. */
   const dpr = bufDpr();
-  const scale = Math.min(box.width / W, box.height / H);
+  /* The band above the top rule is empty, so the field is allowed to be taller
+     than the window by up to that much, with the overflow hanging off the top
+     out of sight. A home screen app on iOS is handed 50 points less than the
+     screen, and fitting the whole field into that leaves a gap down each side;
+     hiding part of the empty band instead lets it fill the width. Where the
+     window is shorter still, as in a browser tab, it shrinks as it always did. */
+  const fitH = box.height * H / (H - TOP);
+  const scale = Math.min(box.width / W, fitH / H);
   /* Whole device pixels in the buffer, and, where the ratio is a whole number,
      a whole number of CSS pixels in both directions as well. A layer sitting on
      a fractional CSS size gets snapped to the pixel grid by the compositor and
@@ -311,7 +318,7 @@ function measure(){
     const d = Math.round(dpr);
     let cw = Math.max(1, Math.floor(W * scale));
     let ch = Math.round(cw * H / W);
-    if (ch > Math.floor(box.height)) { ch = Math.floor(box.height); cw = Math.round(ch * W / H); }
+    if (ch > Math.floor(fitH)) { ch = Math.floor(fitH); cw = Math.round(ch * W / H); }
     bw = cw * d; bh = ch * d;
   } else {
     bw = Math.max(1, Math.round(W * scale * dpr));
@@ -320,6 +327,10 @@ function measure(){
   const qq = bw / W;
   cvs.style.width  = (bw / dpr) + "px";
   cvs.style.height = (bh / dpr) + "px";
+  /* Taller than its box means the band is being hidden: line the bottom up with
+     the bottom of the screen so the overflow goes off the top. Otherwise it stays
+     centred, as before. */
+  cvs.style.alignSelf = (bh / dpr > box.height + 0.5) ? "flex-end" : "";
   q = qq;
   if (cvs.width === bw && cvs.height === bh) return;
   cvs.width = bw; cvs.height = bh;
@@ -1534,7 +1545,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3g";
+const VERSION = "v 0.3h";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
