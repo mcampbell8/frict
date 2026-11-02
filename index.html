@@ -1367,11 +1367,11 @@ function baseline(){
 /* A phone's display has rounded corners and the canvas runs full bleed into
    them, so a square box loses its bottom corners to the curve and reads as
    broken. Curving the bottom two lets the line follow the screen instead of
-   being cut by it; 40 units keeps the line inside a 13 mini's corner once the
-   field fills the width (34 let it slip just behind the curve), and on a square display it simply looks deliberate. The top
+   being cut by it; 41 units keeps the line inside a 13 mini's corner once the
+   field fills the width (34 let it slip behind the curve, and 40 still thinned at the middle), and on a square display it simply looks deliberate. The top
    two get half a ball's radius, which is small enough that no ball can ever
    reach into the curve, so it costs the playfield nothing. */
-const EDGE_R  = 40;
+const EDGE_R  = 41;
 const EDGE_RT = SHOT_R / 2;
 /* The bottom line sits one line width up from the very edge rather than on it. */
 /* topY lets the tutorial draw the same box with its rule further down the
@@ -1545,7 +1545,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3i";
+const VERSION = "v 0.3j";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
