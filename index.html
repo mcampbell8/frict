@@ -229,7 +229,9 @@ function play(name, vol, delay){
      usually the following press. That arrives as a hit sound from several
      seconds ago. Better to lose the sound and wake the context for the next
      one. */
-  if (actx.state !== "running") { try { actx.resume(); } catch(e){} return; }
+  /* The exception is a press that has just asked it to wake: the context comes
+     up within a few milliseconds, so the first tap of a visit still sounds. */
+  if (actx.state !== "running" && performance.now() - wokeAt > 150) { try { actx.resume(); } catch(e){} return; }
   try {
     const s = actx.createBufferSource(); s.buffer = BUF[key];
     const g = actx.createGain(); g.gain.value = vol===undefined?0.7:vol;
@@ -780,8 +782,10 @@ function menuHit(p){
   for (const b of list) if (Math.hypot(p.x-b.x, p.y-btnY(b)) <= b.r) return b;
   return null;
 }
+let wokeAt = -1e9;
 function press(p){
-  audioInit(); if (actx && actx.state === "suspended") actx.resume();
+  audioInit();
+  if (actx && actx.state !== "running") { wokeAt = performance.now(); try { actx.resume(); } catch(e){} }
   if (scene === SC.GAME) {
     /* The one thing on the field that is a button rather than somewhere to aim
        from, so it has to be checked before the press becomes an aim. */
@@ -810,7 +814,17 @@ function release(){
   }
   aiming = false;
 }
-cvs.addEventListener("pointerdown", function(e){ e.preventDefault(); cvs.focus(); press(canvasPoint(e)); });
+/* Focus is only for the keyboard controls, so a finger does not need it.
+   Focusing an element on a phone can make the browser do layout work at the
+   exact moment the arrow starts to move. */
+cvs.addEventListener("pointerdown", function(e){
+  e.preventDefault();
+  const t0 = performance.now();
+  if (e.pointerType === "mouse") { try { cvs.focus({ preventScroll: true }); } catch(err){ cvs.focus(); } }
+  press(canvasPoint(e));
+  const ms = performance.now() - t0;
+  dbg.press = ms; if (ms > dbg.pressWorst) dbg.pressWorst = ms;
+});
 window.addEventListener("pointerup", function(){ release(); });
 window.addEventListener("pointercancel", function(){ aiming = false; });
 cvs.addEventListener("keydown", function(e){
@@ -1512,7 +1526,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3e";
+const VERSION = "v 0.3f";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
@@ -1725,7 +1739,7 @@ function render(){
 /* Fixed timestep. A 13 mini drives the display at 60Hz and a 17 Pro at 120Hz;
    stepping a constant 1/120s makes both simulate exactly the same game. */
 const DBG = /[?&]debug/.test(location.search);
-const dbg = { t:[], steps:[0,0,0,0,0,0], line:"", line2:"", worst:0, hitches:0 };
+const dbg = { t:[], steps:[0,0,0,0,0,0], line:"", line2:"", worst:0, hitches:0, press:0, pressWorst:0 };
 function dbgSample(ms, n){
   if (!DBG) return;
   dbg.t.push(ms); dbg.steps[Math.min(5, n)]++;
@@ -1749,14 +1763,17 @@ function dbgSample(ms, n){
 function drawDbg(){
   if (!DBG || !dbg.line) return;
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,.75)"; ctx.fillRect(0, 0, W, 34);
+  ctx.fillStyle = "rgba(0,0,0,.75)"; ctx.fillRect(0, 0, W, 46);
   ctx.font = "500 9px monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
   ctx.fillStyle = "#00ff00";
   ctx.fillText(dbg.line, 5, 6); ctx.fillText(dbg.line2, 5, 19);
+  /* How long the game's own code took to handle the last press. If a press
+     makes "max" jump but this stays small, the delay is the browser's. */
+  ctx.fillText("press " + dbg.press.toFixed(1) + " ms  worst " + dbg.pressWorst.toFixed(1) + " ms", 5, 32);
   /* A metronome: this dot moves exactly the same distance every frame and
      ignores the clock entirely. If it stutters, the browser is showing frames
      unevenly and nothing in the game's timing can be the cause. */
-  ctx.beginPath(); ctx.arc(4 + (frameN * 3) % (W - 8), 30, 2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(4 + (frameN * 3) % (W - 8), 43, 2, 0, Math.PI*2); ctx.fill();
   ctx.restore();
 }
 
@@ -1827,6 +1844,11 @@ function start(saved){
      ball and arrow turned up in the wrong place. */
   remeasure();
   loadGame();
+  /* Building the audio context took about 35 ms, and it used to happen inside
+     the first press, which is exactly when the arrow starts to move. Browsers
+     allow it to be built at load as long as it stays silent; the press then only
+     has to resume it, which is nearly free. */
+  audioInit();
   /* A face used only by canvas fillText is not always fetched, because nothing
      in the DOM references it. Ask for it explicitly. */
   if (document.fonts && document.fonts.load) {
