@@ -273,6 +273,11 @@ if (ROT_Q) {
   if (ROT_Q.addEventListener) ROT_Q.addEventListener("change", onRot);
   else if (ROT_Q.addListener) ROT_Q.addListener(onRot);
 }
+/* ?lowres in the address draws the field at one pixel per point instead of the
+   screen's full density. It looks soft on purpose: it exists to test whether the
+   size of the picture is what makes motion stutter on a phone. */
+const LOWRES = /[?&]lowres/.test(location.search);
+function bufDpr(){ return LOWRES ? 1 : (window.devicePixelRatio || 1); }
 function measure(){
   /* clientWidth and clientHeight are the box before any transform, which is the
      one the canvas has to fit into. */
@@ -283,7 +288,7 @@ function measure(){
      whole device pixels and derive the CSS size back from it. Sizing the other
      way round leaves the canvas on a half device pixel and every crisp edge
      shimmers as things move across it. */
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = bufDpr();
   const scale = Math.min(box.width / W, box.height / H);
   /* Whole device pixels in the buffer, and, where the ratio is a whole number,
      a whole number of CSS pixels in both directions as well. A layer sitting on
@@ -361,7 +366,7 @@ function auditSize(){
      this fire every second for no reason. */
   const w = cvs.getBoundingClientRect().width;
   if (!w) return;
-  if (Math.abs(w * (window.devicePixelRatio || 1) - cvs.width) > 1) measure();
+  if (Math.abs(w * bufDpr() - cvs.width) > 1) measure();
 }
 setTimeout(auditSize, 1200);
 /* H is constant now, so a saved game never needs rescaling on load. */
@@ -1507,7 +1512,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3d";
+const VERSION = "v 0.3e";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
@@ -1733,7 +1738,7 @@ function dbgSample(ms, n){
   dbg.line = "fps " + Math.round(1000/pc(0.5)) + "  p50 " + pc(0.5).toFixed(1) +
              "  p95 " + pc(0.95).toFixed(1) + "  max " + dbg.worst.toFixed(0) +
              "  >20ms " + Math.round(100*over/dbg.t.length) + "%  hitch " + dbg.hitches;
-  const r = cvs.getBoundingClientRect(), dp = window.devicePixelRatio || 1;
+  const r = cvs.getBoundingClientRect(), dp = bufDpr();
   const rw = rotated() ? r.height : r.width, rh = rotated() ? r.width : r.height;
   const exact = Math.abs(rw*dp - cvs.width) < 0.6 && Math.abs(rh*dp - cvs.height) < 0.6;
   dbg.line2 = "dpr " + dp + "  css " + rw.toFixed(2) + "x" + rh.toFixed(2) +
