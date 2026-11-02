@@ -16,6 +16,10 @@
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
   body{margin:0;background:#000;-webkit-font-smoothing:antialiased}
+  /* Safari paints a grey flash over anything tappable at the instant a finger
+     lands. On a full-screen canvas that is a repaint of the whole picture at the
+     moment the arrow starts to move. */
+  html,body,.screen,.screen canvas{-webkit-tap-highlight-color:transparent}
   /* Fixed in both orientations, so the box the element is positioned against
      never changes underneath it. Upright it carries no transform at all: a
      transformed ancestor invites the compositor to rasterise the canvas at its
@@ -817,6 +821,10 @@ function release(){
 /* Focus is only for the keyboard controls, so a finger does not need it.
    Focusing an element on a phone can make the browser do layout work at the
    exact moment the arrow starts to move. */
+/* Cancelling the raw touch tells Safari there is no scroll, zoom, magnifier or
+   copy menu to prepare for, so it does not spend the first frames of a hold
+   getting ready for one. Pointer events still arrive as normal. */
+cvs.addEventListener("touchstart", function(e){ if (e.cancelable) e.preventDefault(); }, { passive: false });
 cvs.addEventListener("pointerdown", function(e){
   e.preventDefault();
   const t0 = performance.now();
@@ -1526,7 +1534,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3f";
+const VERSION = "v 0.3g";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
