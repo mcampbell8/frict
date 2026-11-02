@@ -1507,7 +1507,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3c";
+const VERSION = "v 0.3d";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
@@ -1738,7 +1738,7 @@ function dbgSample(ms, n){
   const exact = Math.abs(rw*dp - cvs.width) < 0.6 && Math.abs(rh*dp - cvs.height) < 0.6;
   dbg.line2 = "dpr " + dp + "  css " + rw.toFixed(2) + "x" + rh.toFixed(2) +
               "  buf " + cvs.width + "x" + cvs.height + (exact ? "  1:1" : "  RESAMPLED") +
-              "  pace " + (frameIv ? Math.round(1/frameIv) : "off");
+              "  pace " + (RAW_CLOCK ? "raw" : frameIv ? Math.round(1/frameIv) : "off");
   dbg.t = []; dbg.steps = [0,0,0,0,0,0]; dbg.worst = 0;
 }
 function drawDbg(){
@@ -1773,7 +1773,11 @@ const RATES = [30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 const dtHist = [];
 let frameIv = 0;          // the screen's refresh interval in seconds, 0 if unknown
 let frameN = 0;           // frames drawn, for the debug metronome
+/* ?raw in the address turns the pacing off, so the two can be compared side by
+   side in the same browser. */
+const RAW_CLOCK = /[?&]raw/.test(location.search);
 function paceDt(raw){
+  if (RAW_CLOCK) return raw;
   dtHist.push(raw); if (dtHist.length > 31) dtHist.shift();
   if (dtHist.length >= 15) {
     const srt = dtHist.slice().sort(function(a, b){ return a - b; });
