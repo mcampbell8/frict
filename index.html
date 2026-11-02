@@ -1507,7 +1507,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3b";
+const VERSION = "v 0.3c";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
@@ -1737,7 +1737,8 @@ function dbgSample(ms, n){
   const rw = rotated() ? r.height : r.width, rh = rotated() ? r.width : r.height;
   const exact = Math.abs(rw*dp - cvs.width) < 0.6 && Math.abs(rh*dp - cvs.height) < 0.6;
   dbg.line2 = "dpr " + dp + "  css " + rw.toFixed(2) + "x" + rh.toFixed(2) +
-              "  buf " + cvs.width + "x" + cvs.height + (exact ? "  1:1" : "  RESAMPLED");
+              "  buf " + cvs.width + "x" + cvs.height + (exact ? "  1:1" : "  RESAMPLED") +
+              "  pace " + (frameIv ? Math.round(1/frameIv) : "off");
   dbg.t = []; dbg.steps = [0,0,0,0,0,0]; dbg.worst = 0;
 }
 function drawDbg(){
@@ -1747,21 +1748,59 @@ function drawDbg(){
   ctx.font = "500 9px monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
   ctx.fillStyle = "#00ff00";
   ctx.fillText(dbg.line, 5, 6); ctx.fillText(dbg.line2, 5, 19);
+  /* A metronome: this dot moves exactly the same distance every frame and
+     ignores the clock entirely. If it stutters, the browser is showing frames
+     unevenly and nothing in the game's timing can be the cause. */
+  ctx.beginPath(); ctx.arc(4 + (frameN * 3) % (W - 8), 30, 2, 0, Math.PI*2); ctx.fill();
   ctx.restore();
 }
 
 const STEP = 1/120;
 let last = 0, acc = 0;
+/* Browsers report each frame's time with a little error. Safari rounds it to
+   whole milliseconds, so frames that are really 16.67 ms apart arrive as 16, 17,
+   17, and other browsers wobble by a millisecond or so. The screen itself is
+   steady, so moving the ball by the reported time draws it unevenly even though
+   every picture is on time.
+
+   This works out which standard refresh rate the screen is running at, from the
+   middle value of the last half second of frames, and then treats any frame
+   within 2 ms of a whole number of refreshes as exactly that many (less on a
+   screen faster than 120Hz, where 2 ms is a large part of a frame). A frame
+   that really was late, or a screen at an unusual rate, keeps its reported
+   time. */
+const RATES = [30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
+const dtHist = [];
+let frameIv = 0;          // the screen's refresh interval in seconds, 0 if unknown
+let frameN = 0;           // frames drawn, for the debug metronome
+function paceDt(raw){
+  dtHist.push(raw); if (dtHist.length > 31) dtHist.shift();
+  if (dtHist.length >= 15) {
+    const srt = dtHist.slice().sort(function(a, b){ return a - b; });
+    const med = srt[srt.length >> 1];
+    frameIv = 0;
+    for (let i = 0; i < RATES.length; i++) {
+      const iv = 1 / RATES[i];
+      if (Math.abs(med - iv) < Math.max(iv * 0.03, 0.0006)) { frameIv = iv; break; }
+    }
+  }
+  if (!frameIv) return raw;
+  const n = Math.round(raw / frameIv);
+  if (n >= 1 && Math.abs(raw - n * frameIv) < Math.min(0.002, frameIv * 0.25)) return n * frameIv;
+  return raw;
+}
 function frame(ts){
-  let dt = last ? (ts - last)/1000 : STEP;
+  const raw = last ? (ts - last)/1000 : STEP;
   last = ts;
+  frameN++;
+  let dt = paceDt(raw);
   /* Cap catch-up at three frames. If something stalls the main thread the
      simulation loses that time rather than teleporting through it. */
   if (dt > 0.05) dt = 0.05;
   acc += dt;
   let guard = 0, nsteps = 0;
   while (acc >= STEP && guard++ < 60) { stepWorld(STEP); acc -= STEP; nsteps++; }
-  dbgSample(dt * 1000, nsteps);
+  dbgSample(raw * 1000, nsteps);
   /* Whatever is left in the accumulator is how far past the last physics step
      this frame sits. Drawing at that fraction between the previous and current
      state is what keeps motion smooth when the display's cadence is not an
