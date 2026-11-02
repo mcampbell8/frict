@@ -522,7 +522,11 @@ MENUS[SC.PAUSE] = [
   slot("C", { id:"pause.main", fs:32, lh:0.86, rot:-7.1, label:"main\nmenu", solid:true,
               act:function(){ scene = SC.MENU; } }),
   slot("D", { restart:true,
-              act:function(){ ask("confirm.restart", "restart?", 37, 2.7, newGame, SC.PAUSE, true); } })
+              act:function(){ ask("confirm.restart", "restart?", 37, 2.7, newGame, SC.PAUSE, true); } }),
+  /* The small circle the i sits in on the main menu, here holding the same
+     speaker the settings screen uses. */
+  slot("E", { id:"pause.speaker", sound:true, label:"",
+              act:function(){ soundOn = !soundOn; store.set("sound", soundOn); if (soundOn) play("tap", 0.5); } })
 ];
 /* Sits on the far side of the screen from the wordmark, on its centre line, so
    the bottom of the page reads as one row. */
@@ -1503,7 +1507,7 @@ function titleBlock(){
    a phone can be checked at a glance against the build that was sent, which a
    home screen app otherwise gives no way to do. Tick the letter on every build
    that goes out. */
-const VERSION = "v 0.3a";
+const VERSION = "v 0.3b";
 const VER_PX = 13, VER_X = 12, VER_Y = H - 18;
 function versionStamp(){
   const o = layOf("menu.version") || {};
